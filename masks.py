@@ -1,0 +1,31 @@
+def button_mask_1(share=False, l3=False, r3=False, options=False, up=False, right=False, down=False, left=False):
+    return (
+        (0x01 if share else 0) |
+        (0x02 if l3 else 0) |
+        (0x04 if r3 else 0) |
+        (0x08 if options else 0) |
+        (0x10 if up else 0) |
+        (0x20 if right else 0) |
+        (0x40 if down else 0) |
+        (0x80 if left else 0)
+    )
+
+def button_mask_2(l2=False, r2=False, l1=False, r1=False, triangle=False, circle=False, cross=False, square=False):
+    return (
+        (0x01 if l2 else 0) |
+        (0x02 if r2 else 0) |
+        (0x04 if l1 else 0) |
+        (0x08 if r1 else 0) |
+        (0x10 if triangle else 0) |
+        (0x20 if circle else 0) |
+        (0x40 if cross else 0) |
+        (0x80 if square else 0)
+    )
+
+def touchpad_input(active=False, touch_id=0, x=0, y=0):
+    return (
+        1 if active else 0,
+        touch_id & 0xFF,
+        x & 0xFFFF,
+        y & 0xFFFF
+    )
