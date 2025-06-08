@@ -48,22 +48,22 @@ def handle_version_request(addr):
 def handle_list_ports(addr, data):
     if len(data) < 24:
         return
-    wanted_slots, = struct.unpack('<I', data[20:24])
-    for slot in range(4):
-        if wanted_slots & (1 << slot):
-            state = 2  # connected
-            model = 2  # DS4
-            connection_type = 2  # USB
-            battery = 5  # full
-            active = 1  # active
-            payload = struct.pack('<I4B6s2B', DSU_PORT_INFO, slot, state, model, connection_type, MAC_ADDRESS, battery, active)
-            packet = build_header(DSU_PORT_INFO, payload[4:])
-            sock.sendto(packet, addr)
-            print(f"Sent port info for slot {slot} to {addr}")
+    # Optionally parse wanted_slots, but always send just slot 0
+    slot = 0
+    state = 2  # connected
+    model = 2  # DS4
+    connection_type = 2  # USB
+    battery = 5  # full
+    active = 1  # active
+    payload = struct.pack('<I4B6s2B', DSU_PORT_INFO, slot, state, model, connection_type, MAC_ADDRESS, battery, active)
+    packet = build_header(DSU_PORT_INFO, payload[4:])
+    sock.sendto(packet, addr)
+    print(f"Sent port info for slot {slot} to {addr}")
+
 
 def handle_pad_data_request(addr, data):
     if len(data) < 28:
         return
-    _, slot, mac = struct.unpack_from('<BB6s', data, 20)
+    slot = 0  # Force slot 0
     active_clients[addr] = (time.time(), slot)
     print(f"Registered input request from {addr} for slot {slot}")
