@@ -3,6 +3,7 @@ import time
 import socket
 import zlib
 import random
+import select
 
 from net_config import *
 from masks import *
@@ -103,21 +104,26 @@ if __name__ == "__main__":
     press_duration = 3
     cycle_duration = 60
     controller_states = {slot: ControllerState() for slot in range(4)}
+    next_frame = time.time()
 
     try:
         while True:
-            try:
-                data, addr = sock.recvfrom(2048)
-                if data[:4] == b'DSUC':
-                    msg_type, = struct.unpack('<I', data[16:20])
-                    if msg_type == DSU_version_request:
-                        handle_version_request(addr)
-                    elif msg_type == DSU_list_ports:
-                        handle_list_ports(addr, data)
-                    elif msg_type == DSU_motor_request:
-                        handle_pad_data_request(addr, data)
-            except BlockingIOError:
-                pass
+            wait = max(0, next_frame - time.time())
+            rlist, _, _ = select.select([sock], [], [], wait)
+            if rlist:
+                while True:
+                    try:
+                        data, addr = sock.recvfrom(2048)
+                    except BlockingIOError:
+                        break
+                    if data[:4] == b'DSUC':
+                        msg_type, = struct.unpack('<I', data[16:20])
+                        if msg_type == DSU_version_request:
+                            handle_version_request(addr)
+                        elif msg_type == DSU_list_ports:
+                            handle_list_ports(addr, data)
+                        elif msg_type == DSU_motor_request:
+                            handle_pad_data_request(addr, data)
 
             update_inputs(frame, controller_states, press_duration, cycle_duration)
 
@@ -132,8 +138,8 @@ if __name__ == "__main__":
                 for s, state in controller_states.items():
                     send_input(addr, s, **vars(state))
 
-            time.sleep(1 / 60.0)
             frame += 1
+            next_frame += 1 / 60.0
 
     except KeyboardInterrupt:
         print("Server shutting down.")
