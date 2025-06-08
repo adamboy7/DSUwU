@@ -1,10 +1,107 @@
-from net_config import *
+import struct
+import time
+import socket
+import zlib
+import random
 
+from net_config import *
+from masks import *
+from inputs import update_inputs
+
+sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+sock.bind((UDP_IP, UDP_PORT))
+sock.setblocking(False)
+print(f"Listening on UDP {UDP_IP}:{UDP_PORT}")
+
+def crc_packet(header, payload):
+    crc_data = header[:8] + b'\x00\x00\x00\x00' + header[12:] + payload
+    return zlib.crc32(crc_data) & 0xFFFFFFFF
+
+def build_header(msg_type, payload):
+    msg = struct.pack('<I', msg_type) + payload
+    length = len(msg)
+    header = struct.pack('<4sHHII', b'DSUS', PROTOCOL_VERSION, length, 0, server_id)
+    crc = crc_packet(header, msg)
+    header = struct.pack('<4sHHII', b'DSUS', PROTOCOL_VERSION, length, crc, server_id)
+    return header + msg
+
+def send_port_info(addr, slot):
+    payload = struct.pack('<4B6s2B', slot, 2, 2, 2, MAC_ADDRESS, 5, 1)
+    packet = build_header(DSU_PORT_INFO, payload)
+    sock.sendto(packet, addr)
+    print(f"Sent port info for slot {slot} to {addr}")
+
+def handle_version_request(addr):
+    payload = struct.pack('<I H', DSU_VERSION_RESPONSE, PROTOCOL_VERSION)
+    packet = build_header(DSU_VERSION_RESPONSE, payload[4:])
+    sock.sendto(packet, addr)
+    print(f"Sent version response to {addr}")
+
+def handle_list_ports(addr, data):
+    if len(data) < 24:
+        return
+    client_port_info.setdefault(addr, set())
+    for slot in sorted(known_slots):
+        if slot not in client_port_info[addr]:
+            send_port_info(addr, slot)
+            client_port_info[addr].add(slot)
+
+def handle_pad_data_request(addr, data):
+    if len(data) < 28:
+        return
+    slot = data[20]
+    info = active_clients.setdefault(addr, {'last_seen': time.time(), 'slots': set()})
+    info['last_seen'] = time.time()
+    info['slots'].add(slot)
+    known_slots.add(slot)
+    client_port_info.setdefault(addr, set())
+    if slot not in client_port_info[addr]:
+        send_port_info(addr, slot)
+        client_port_info[addr].add(slot)
+    print(f"Registered input request from {addr} for slot {slot}")
+
+def send_input(addr, slot, buttons1=button_mask_1(), buttons2=button_mask_2(), home=False,
+               touch_button=False, L_stick=(0,0), R_stick=(0,0), R1=False, L1=False,
+               R2=0, L2=0, touchpad_input1=None, touchpad_input2=None):
+    if slot not in known_slots:
+        known_slots.add(slot)
+        for client in list(client_port_info.keys()):
+            if slot not in client_port_info[client]:
+                send_port_info(client, slot)
+                client_port_info[client].add(slot)
+
+    client_port_info.setdefault(addr, set())
+    if slot not in client_port_info[addr]:
+        send_port_info(addr, slot)
+        client_port_info[addr].add(slot)
+
+    info = active_clients.setdefault(addr, {'last_seen': time.time(), 'slots': set()})
+    info['last_seen'] = time.time()
+    info['slots'].add(slot)
+
+    timestamp_ms = int(time.time() * 1000) & 0xFFFFFFFF
+    timestamp_us = int(time.time() * 1000000)
+    touch1 = touchpad_input1 or touchpad_input()
+    touch2 = touchpad_input2 or touchpad_input()
+
+    payload = struct.pack('<4B6s2BI', slot, 2, 2, 2, MAC_ADDRESS, 5, 1, timestamp_ms)
+    payload += struct.pack('<22B2H2B2HQ6f',
+        buttons1, buttons2,
+        int(home), int(touch_button),
+        *L_stick, *R_stick,
+        0, 0, 0, 0, 0, 0, 0, 0,
+        int(R1), int(L1), R2, L2,
+        *touch1, *touch2, timestamp_us,
+        0.0, 0.0, 0.0, 0.0, 0.0, 0.0
+    )
+    packet = build_header(DSU_PAD_DATA_RESPONSE, payload)
+    sock.sendto(packet, addr)
+    print(f"Sent input to {addr} slot {slot}")
+
+# Main loop
 frame = 0
 press_duration = 3
 cycle_duration = 60
-
-# Store the last known input state per slot
 controller_states = {slot: ControllerState() for slot in range(4)}
 
 try:
@@ -22,26 +119,15 @@ try:
         except BlockingIOError:
             pass
 
-        # Update controller states
-        for slot in range(4):
-            if frame % cycle_duration < press_duration:
-                controller_states[slot].buttons2 = button_mask_2(
-                    circle=(slot == 0),
-                    cross=(slot == 1),
-                    square=(slot == 2),
-                    triangle=(slot == 3)
-                )
-            else:
-                controller_states[slot].buttons2 = button_mask_2()
+        update_inputs(frame, controller_states, press_duration, cycle_duration)
 
-        # Clean up stale clients
         now = time.time()
         for addr in list(active_clients.keys()):
             if now - active_clients[addr]['last_seen'] > 5.0:
                 del active_clients[addr]
                 client_port_info.pop(addr, None)
                 print(f"Client {addr} timed out")
-        # Send all controller states to all active clients
+
         for addr in active_clients:
             for s, state in controller_states.items():
                 send_input(addr, s, **vars(state))
