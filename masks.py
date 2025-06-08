@@ -1,3 +1,6 @@
+from typing import Optional, Tuple
+from dataclasses import dataclass
+
 def button_mask_1(share=False, l3=False, r3=False, options=False, up=False, right=False, down=False, left=False):
     return (
         (0x01 if share else 0) |
@@ -29,3 +32,18 @@ def touchpad_input(active=False, touch_id=0, x=0, y=0):
         x & 0xFFFF,
         y & 0xFFFF
     )
+
+@dataclass
+class ControllerState:
+    buttons1: int = button_mask_1()
+    buttons2: int = button_mask_2()
+    home: bool = False
+    touch_button: bool = False
+    L_stick: Tuple[int, int] = (0, 0)
+    R_stick: Tuple[int, int] = (0, 0)
+    R1: bool = False
+    L1: bool = False
+    R2: int = 0
+    L2: int = 0
+    touchpad_input1: Optional[Tuple[int, int, int, int]] = None
+    touchpad_input2: Optional[Tuple[int, int, int, int]] = None
