@@ -62,7 +62,7 @@ try:
             if frame % cycle_duration < press_duration:
                 send_input(addr, slot, buttons2=button_mask_2(circle=True))
             else:
-                send_input(addr, slot, buttons2=button_mask_2(circle=False))
+                send_input(addr, slot)
 
         time.sleep(1 / 60.0)
         frame += 1

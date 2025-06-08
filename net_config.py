@@ -8,7 +8,6 @@ import random
 UDP_IP = "0.0.0.0"
 UDP_PORT = 26760
 
-client_id = random.randint(0, 0xFFFFFFFF)
 server_id = random.randint(0, 0xFFFFFFFF)
 active_clients = {}
 
