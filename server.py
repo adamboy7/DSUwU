@@ -9,9 +9,9 @@ from masks import *
 from inputs import update_inputs
 
 sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-sock.bind((UDP_IP, UDP_PORT))
+sock.bind((UDP_IP, UDP_port))
 sock.setblocking(False)
-print(f"Listening on UDP {UDP_IP}:{UDP_PORT}")
+print(f"Listening on UDP {UDP_IP}:{UDP_port}")
 
 def crc_packet(header, payload):
     crc_data = header[:8] + b'\x00\x00\x00\x00' + header[12:] + payload
@@ -27,13 +27,13 @@ def build_header(msg_type, payload):
 
 def send_port_info(addr, slot):
     payload = struct.pack('<4B6s2B', slot, 2, 2, 2, MAC_ADDRESS, 5, 1)
-    packet = build_header(DSU_PORT_INFO, payload)
+    packet = build_header(DSU_port_info, payload)
     sock.sendto(packet, addr)
     print(f"Sent port info for slot {slot} to {addr}")
 
 def handle_version_request(addr):
-    payload = struct.pack('<I H', DSU_VERSION_RESPONSE, PROTOCOL_VERSION)
-    packet = build_header(DSU_VERSION_RESPONSE, payload[4:])
+    payload = struct.pack('<I H', DSU_version_response, PROTOCOL_VERSION)
+    packet = build_header(DSU_version_response, payload[4:])
     sock.sendto(packet, addr)
     print(f"Sent version response to {addr}")
 
@@ -94,7 +94,7 @@ def send_input(addr, slot, buttons1=button_mask_1(), buttons2=button_mask_2(), h
         *touch1, *touch2, timestamp_us,
         0.0, 0.0, 0.0, 0.0, 0.0, 0.0
     )
-    packet = build_header(DSU_PAD_DATA_RESPONSE, payload)
+    packet = build_header(DSU_motor_response, payload)
     sock.sendto(packet, addr)
     print(f"Sent input to {addr} slot {slot}")
 
@@ -110,11 +110,11 @@ if __name__ == "__main__":
                 data, addr = sock.recvfrom(2048)
                 if data[:4] == b'DSUC':
                     msg_type, = struct.unpack('<I', data[16:20])
-                    if msg_type == DSU_VERSION_REQUEST:
+                    if msg_type == DSU_version_request:
                         handle_version_request(addr)
-                    elif msg_type == DSU_LIST_PORTS:
+                    elif msg_type == DSU_list_ports:
                         handle_list_ports(addr, data)
-                    elif msg_type == DSU_PAD_DATA_REQUEST:
+                    elif msg_type == DSU_motor_request:
                         handle_pad_data_request(addr, data)
             except BlockingIOError:
                 pass
@@ -123,7 +123,7 @@ if __name__ == "__main__":
 
             now = time.time()
             for addr in list(active_clients.keys()):
-                if now - active_clients[addr]['last_seen'] > DSU_Timeout:
+                if now - active_clients[addr]['last_seen'] > DSU_timeout:
                     del active_clients[addr]
                     client_port_info.pop(addr, None)
                     print(f"Client {addr} timed out")

@@ -9,8 +9,8 @@ from dataclasses import dataclass
 
 # Server config
 UDP_IP = "0.0.0.0"
-UDP_PORT = 26760
-DSU_Timeout = 5.0
+UDP_port = 26760
+DSU_timeout = 5.0
 
 server_id = random.randint(0, 0xFFFFFFFF)
 # {addr: {'last_seen': float, 'slots': set()}}
@@ -21,12 +21,12 @@ client_port_info = {}
 known_slots = {0}
 
 # DSU Message Types
-DSU_VERSION_REQUEST  = 0x100000
-DSU_VERSION_RESPONSE = 0x100000
-DSU_LIST_PORTS       = 0x100001
-DSU_PORT_INFO        = 0x100001
-DSU_PAD_DATA_REQUEST = 0x100002
-DSU_PAD_DATA_RESPONSE= 0x100002
+DSU_version_request  = 0x100000
+DSU_version_response = 0x100000
+DSU_list_ports       = 0x100001
+DSU_port_info        = 0x100001
+DSU_motor_request = 0x100002
+DSU_motor_response= 0x100002
 
 PROTOCOL_VERSION = 1001
 MAC_ADDRESS = b'\xAA\xBB\xCC\xDD\xEE\xFF'
