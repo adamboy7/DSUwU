@@ -98,43 +98,43 @@ def send_input(addr, slot, buttons1=button_mask_1(), buttons2=button_mask_2(), h
     sock.sendto(packet, addr)
     print(f"Sent input to {addr} slot {slot}")
 
-# Main loop
-frame = 0
-press_duration = 3
-cycle_duration = 60
-controller_states = {slot: ControllerState() for slot in range(4)}
+if __name__ == "__main__":
+    frame = 0
+    press_duration = 3
+    cycle_duration = 60
+    controller_states = {slot: ControllerState() for slot in range(4)}
 
-try:
-    while True:
-        try:
-            data, addr = sock.recvfrom(2048)
-            if data[:4] == b'DSUC':
-                msg_type, = struct.unpack('<I', data[16:20])
-                if msg_type == DSU_VERSION_REQUEST:
-                    handle_version_request(addr)
-                elif msg_type == DSU_LIST_PORTS:
-                    handle_list_ports(addr, data)
-                elif msg_type == DSU_PAD_DATA_REQUEST:
-                    handle_pad_data_request(addr, data)
-        except BlockingIOError:
-            pass
+    try:
+        while True:
+            try:
+                data, addr = sock.recvfrom(2048)
+                if data[:4] == b'DSUC':
+                    msg_type, = struct.unpack('<I', data[16:20])
+                    if msg_type == DSU_VERSION_REQUEST:
+                        handle_version_request(addr)
+                    elif msg_type == DSU_LIST_PORTS:
+                        handle_list_ports(addr, data)
+                    elif msg_type == DSU_PAD_DATA_REQUEST:
+                        handle_pad_data_request(addr, data)
+            except BlockingIOError:
+                pass
 
-        update_inputs(frame, controller_states, press_duration, cycle_duration)
+            update_inputs(frame, controller_states, press_duration, cycle_duration)
 
-        now = time.time()
-        for addr in list(active_clients.keys()):
-            if now - active_clients[addr]['last_seen'] > 5.0:
-                del active_clients[addr]
-                client_port_info.pop(addr, None)
-                print(f"Client {addr} timed out")
+            now = time.time()
+            for addr in list(active_clients.keys()):
+                if now - active_clients[addr]['last_seen'] > DSU_Timeout:
+                    del active_clients[addr]
+                    client_port_info.pop(addr, None)
+                    print(f"Client {addr} timed out")
 
-        for addr in active_clients:
-            for s, state in controller_states.items():
-                send_input(addr, s, **vars(state))
+            for addr in active_clients:
+                for s, state in controller_states.items():
+                    send_input(addr, s, **vars(state))
 
-        time.sleep(1 / 60.0)
-        frame += 1
+            time.sleep(1 / 60.0)
+            frame += 1
 
-except KeyboardInterrupt:
-    print("Server shutting down.")
-    sock.close()
+    except KeyboardInterrupt:
+        print("Server shutting down.")
+        sock.close()

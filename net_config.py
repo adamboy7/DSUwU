@@ -10,6 +10,7 @@ from dataclasses import dataclass
 # Server config
 UDP_IP = "0.0.0.0"
 UDP_PORT = 26760
+DSU_Timeout = 5.0
 
 server_id = random.randint(0, 0xFFFFFFFF)
 # {addr: {'last_seen': float, 'slots': set()}}
