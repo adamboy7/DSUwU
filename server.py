@@ -1,7 +1,41 @@
 from masks import *
 from net_config import *
 
+# Store the last known input state per slot
+controller_states = {
+    slot: {
+        "buttons1": button_mask_1(),
+        "buttons2": button_mask_2(),
+        "home": False,
+        "touch_button": False,
+        "L_stick": (0, 0),
+        "R_stick": (0, 0),
+        "R1": False,
+        "L1": False,
+        "R2": 0,
+        "L2": 0,
+        "touchpad_input1": None,
+        "touchpad_input2": None
+    } for slot in range(4)
+}
+
 def send_input(addr, slot, buttons1=button_mask_1(), buttons2=button_mask_2(), home=False, touch_button=False, L_stick=(0,0), R_stick=(0,0), R1=False, L1=False, R2=0, L2=0, touchpad_input1=None, touchpad_input2=None):
+    if slot not in known_slots:
+        known_slots.add(slot)
+        for client in list(client_port_info.keys()):
+            if slot not in client_port_info[client]:
+                send_port_info(client, slot)
+                client_port_info[client].add(slot)
+
+    client_port_info.setdefault(addr, set())
+    if slot not in client_port_info[addr]:
+        send_port_info(addr, slot)
+        client_port_info[addr].add(slot)
+
+    info = active_clients.setdefault(addr, {'last_seen': time.time(), 'slots': set()})
+    info['last_seen'] = time.time()
+    info['slots'].add(slot)
+
     timestamp_ms = int(time.time() * 1000) & 0xFFFFFFFF
     timestamp_us = int(time.time() * 1000000)
     touch1 = touchpad_input1 or touchpad_input()
@@ -30,6 +64,24 @@ def send_input(addr, slot, buttons1=button_mask_1(), buttons2=button_mask_2(), h
     sock.sendto(packet, addr)
     print(f"Sent input to {addr} slot {slot}")
 
+def handle_pad_data_request(addr, data):
+    if len(data) < 28:
+        return
+    slot = data[20]
+    info = active_clients.setdefault(addr, {'last_seen': time.time(), 'slots': set()})
+    info['last_seen'] = time.time()
+    info['slots'].add(slot)
+    known_slots.add(slot)
+    client_port_info.setdefault(addr, set())
+    if slot not in client_port_info[addr]:
+        send_port_info(addr, slot)
+        client_port_info[addr].add(slot)
+    print(f"Registered input request from {addr} for slot {slot}")
+
+    # Send all controller states to this address
+    for s, state in controller_states.items():
+        send_input(addr, s, **state)
+
 frame = 0
 press_duration = 3
 cycle_duration = 60
@@ -49,20 +101,25 @@ try:
         except BlockingIOError:
             pass
 
+        # Update controller states
+        for slot in range(4):
+            if frame % cycle_duration < press_duration:
+                controller_states[slot]["buttons2"] = button_mask_2(
+                    circle=(slot == 0),
+                    cross=(slot == 1),
+                    square=(slot == 2),
+                    triangle=(slot == 3)
+                )
+            else:
+                controller_states[slot]["buttons2"] = button_mask_2()
+
+        # Clean up stale clients
         now = time.time()
         for addr in list(active_clients.keys()):
-            last_seen, slot = active_clients[addr]
-            if now - last_seen > 5.0:
+            if now - active_clients[addr]['last_seen'] > 5.0:
                 del active_clients[addr]
+                client_port_info.pop(addr, None)
                 print(f"Client {addr} timed out")
-                continue
-
-            active_clients[addr] = (now, slot)
-
-            if frame % cycle_duration < press_duration:
-                send_input(addr, slot, buttons2=button_mask_2(circle=True))
-            else:
-                send_input(addr, slot)
 
         time.sleep(1 / 60.0)
         frame += 1

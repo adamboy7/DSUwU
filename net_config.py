@@ -9,7 +9,12 @@ UDP_IP = "0.0.0.0"
 UDP_PORT = 26760
 
 server_id = random.randint(0, 0xFFFFFFFF)
+# {addr: {'last_seen': float, 'slots': set()}}
 active_clients = {}
+# Tracks which port info has been announced per client
+client_port_info = {}
+# Set of all slots the server has advertised
+known_slots = {0}
 
 # DSU Message Types
 DSU_VERSION_REQUEST = 0x100000
@@ -39,6 +44,17 @@ def build_header(msg_type, payload):
     header = struct.pack('<4sHHII', b'DSUS', PROTOCOL_VERSION, length, crc, server_id)
     return header + msg
 
+def send_port_info(addr, slot):
+    state = 2  # connected
+    model = 2  # DS4
+    connection_type = 2  # USB
+    battery = 5  # full
+    active = 1  # active
+    payload = struct.pack('<4B6s2B', slot, state, model, connection_type, MAC_ADDRESS, battery, active)
+    packet = build_header(DSU_PORT_INFO, payload)
+    sock.sendto(packet, addr)
+    print(f"Sent port info for slot {slot} to {addr}")
+
 def handle_version_request(addr):
     payload = struct.pack('<I H', DSU_VERSION_RESPONSE, PROTOCOL_VERSION)
     packet = build_header(DSU_VERSION_RESPONSE, payload[4:])
@@ -48,22 +64,8 @@ def handle_version_request(addr):
 def handle_list_ports(addr, data):
     if len(data) < 24:
         return
-    # Optionally parse wanted_slots, but always send just slot 0
-    slot = 0
-    state = 2  # connected
-    model = 2  # DS4
-    connection_type = 2  # USB
-    battery = 5  # full
-    active = 1  # active
-    payload = struct.pack('<I4B6s2B', DSU_PORT_INFO, slot, state, model, connection_type, MAC_ADDRESS, battery, active)
-    packet = build_header(DSU_PORT_INFO, payload[4:])
-    sock.sendto(packet, addr)
-    print(f"Sent port info for slot {slot} to {addr}")
-
-
-def handle_pad_data_request(addr, data):
-    if len(data) < 28:
-        return
-    slot = 0  # Force slot 0
-    active_clients[addr] = (time.time(), slot)
-    print(f"Registered input request from {addr} for slot {slot}")
+    client_port_info.setdefault(addr, set())
+    for slot in sorted(known_slots):
+        if slot not in client_port_info[addr]:
+            send_port_info(addr, slot)
+            client_port_info[addr].add(slot)
