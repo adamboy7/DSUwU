@@ -8,7 +8,7 @@ import threading
 
 from net_config import *
 from masks import *
-from inputs import update_inputs
+from inputs import controller_loop
 
 sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 sock.bind((UDP_IP, UDP_port))
@@ -100,20 +100,15 @@ def send_input(addr, slot, buttons1=button_mask_1(), buttons2=button_mask_2(), h
     print(f"Sent input to {addr} slot {slot}")
 
 if __name__ == "__main__":
-    press_duration = 3
-    cycle_duration = 60
     controller_states = {slot: ControllerState() for slot in range(4)}
 
     stop_event = threading.Event()
 
-    def controller_loop():
-        frame = 0
-        while not stop_event.is_set():
-            update_inputs(frame, controller_states, press_duration, cycle_duration)
-            frame += 1
-            time.sleep(1 / 60.0)
-
-    controller_thread = threading.Thread(target=controller_loop, daemon=True)
+    controller_thread = threading.Thread(
+        target=controller_loop,
+        args=(stop_event, controller_states),
+        daemon=True,
+    )
     controller_thread.start()
 
     next_frame = time.time()
