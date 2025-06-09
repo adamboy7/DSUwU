@@ -196,7 +196,29 @@ if __name__ == "__main__":
 
             for addr in active_clients:
                 for s, state in controller_states.items():
-                    send_input(addr, s, **vars(state))
+                    send_input(
+                        addr,
+                        s,
+                        connected=state.connected,
+                        packet_num=state.packet_num,
+                        buttons1=state.buttons1,
+                        buttons2=state.buttons2,
+                        home=state.home,
+                        touch_button=state.touch_button,
+                        L_stick=state.L_stick,
+                        R_stick=state.R_stick,
+                        dpad_analog=state.dpad_analog,
+                        face_analog=state.face_analog,
+                        analog_R1=state.analog_R1,
+                        analog_L1=state.analog_L1,
+                        analog_R2=state.analog_R2,
+                        analog_L2=state.analog_L2,
+                        touchpad_input1=state.touchpad_input1,
+                        touchpad_input2=state.touchpad_input2,
+                        motion_timestamp=state.motion_timestamp,
+                        accelerometer=state.accelerometer,
+                        gyroscope=state.gyroscope,
+                        )
             for state in controller_states.values():
                 state.packet_num = (state.packet_num + 1) & 0xFFFFFFFF
                 motors = list(state.motors)
