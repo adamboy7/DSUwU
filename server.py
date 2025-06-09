@@ -60,6 +60,37 @@ def handle_pad_data_request(addr, data):
         client_port_info[addr].add(slot)
     print(f"Registered input request from {addr} for slot {slot}")
 
+def handle_motor_request(addr, data):
+    """Respond with the number of rumble motors for a controller slot."""
+    if len(data) < 28:
+        return
+    slot = data[20]
+    mac_address = slot_mac_addresses[slot]
+    motor_count = len(controller_states[slot].motors)
+    payload = struct.pack('<4B6s2B', slot, 2, 2, 2, mac_address, 5, 1)
+    payload += struct.pack('<B', motor_count)
+    packet = build_header(DSU_motor_response, payload)
+    sock.sendto(packet, addr)
+    print(f"Sent motor count {motor_count} to {addr} slot {slot}")
+
+def handle_motor_command(addr, data):
+    """Update rumble motor intensity for a controller slot."""
+    if len(data) < 30:
+        return
+    slot = data[20]
+    motor_id = data[28]
+    intensity = data[29]
+    state = controller_states.get(slot)
+    if state is None or motor_id >= len(state.motors):
+        return
+    motors = list(state.motors)
+    timestamps = list(state.motor_timestamps)
+    motors[motor_id] = intensity
+    timestamps[motor_id] = time.time()
+    state.motors = tuple(motors)
+    state.motor_timestamps = tuple(timestamps)
+    print(f"Rumble motor {motor_id} of slot {slot} set to {intensity}")
+
 def send_input(addr, slot, connected=True, packet_num=0,
                buttons1=button_mask_1(), buttons2=button_mask_2(), home=False,
                touch_button=False, L_stick=(0, 0), R_stick=(0, 0),
@@ -148,6 +179,10 @@ if __name__ == "__main__":
                             handle_list_ports(addr, data)
                         elif msg_type == DSU_button_request:
                             handle_pad_data_request(addr, data)
+                        elif msg_type == DSU_motor_request:
+                            handle_motor_request(addr, data)
+                        elif msg_type == motor_command:
+                            handle_motor_command(addr, data)
 
             now = time.time()
             for addr in list(active_clients.keys()):
@@ -161,7 +196,13 @@ if __name__ == "__main__":
                     send_input(addr, s, **vars(state))
             for state in controller_states.values():
                 state.packet_num = (state.packet_num + 1) & 0xFFFFFFFF
-
+                motors = list(state.motors)
+                timestamps = list(state.motor_timestamps)
+                for i in range(len(motors)):
+                    if now - timestamps[i] > DSU_timeout and motors[i] != 0:
+                        motors[i] = 0
+                state.motors = tuple(motors)
+            
             next_frame += 1 / 60.0
 
     except KeyboardInterrupt:

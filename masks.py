@@ -62,3 +62,7 @@ class ControllerState:
     motion_timestamp: int = 0
     accelerometer: Tuple[float, float, float] = (0.0, 0.0, 0.0)
     gyroscope: Tuple[float, float, float] = (0.0, 0.0, 0.0)
+
+    # Rumble motor intensities and last update timestamps
+    motors: Tuple[int, int] = (0, 0)
+    motor_timestamps: Tuple[float, float] = (0.0, 0.0)
