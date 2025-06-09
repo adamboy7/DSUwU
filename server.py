@@ -27,10 +27,8 @@ def build_header(msg_type, payload):
     return header + msg
 
 def send_port_info(addr, slot):
-    payload = struct.pack('<4B6s2B', slot, 2, 2, 2, MAC_ADDRESS, 5, 1)
-    packet = build_header(DSU_port_info, payload)
-    sock.sendto(packet, addr)
-    print(f"Sent port info for slot {slot} to {addr}")
+    mac_address = slot_mac_addresses[slot]
+    payload = struct.pack('<4B6s2B', slot, 2, 2, 2, mac_address, 5, 1)
 
 def handle_version_request(addr):
     payload = struct.pack('<I H', DSU_version_response, PROTOCOL_VERSION)
@@ -85,7 +83,8 @@ def send_input(addr, slot, buttons1=button_mask_1(), buttons2=button_mask_2(), h
     touch1 = touchpad_input1 or touchpad_input()
     touch2 = touchpad_input2 or touchpad_input()
 
-    payload = struct.pack('<4B6s2BI', slot, 2, 2, 2, MAC_ADDRESS, 5, 1, timestamp_ms)
+    mac_address = slot_mac_addresses[slot]
+    payload = struct.pack('<4B6s2BI', slot, 2, 2, 2, mac_address, 5, 1, timestamp_ms)
     payload += struct.pack('<22B2H2B2HQ6f',
         buttons1, buttons2,
         int(home), int(touch_button),
