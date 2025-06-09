@@ -36,15 +36,29 @@ def touchpad_input(active=False, touch_id=0, x=0, y=0):
 
 @dataclass
 class ControllerState:
+    """Current virtual controller state."""
+
+    connected: bool = True
+    packet_num: int = 0
+
     buttons1: int = button_mask_1()
     buttons2: int = button_mask_2()
     home: bool = False
     touch_button: bool = False
     L_stick: Tuple[int, int] = (0, 0)
     R_stick: Tuple[int, int] = (0, 0)
-    R1: bool = False
-    L1: bool = False
-    R2: int = 0
-    L2: int = 0
+
+    dpad_analog: Tuple[int, int, int, int] = (0, 0, 0, 0)
+    face_analog: Tuple[int, int, int, int] = (0, 0, 0, 0)
+
+    analog_R1: int = 0
+    analog_L1: int = 0
+    analog_R2: int = 0
+    analog_L2: int = 0
+
     touchpad_input1: Optional[Tuple[int, int, int, int]] = None
     touchpad_input2: Optional[Tuple[int, int, int, int]] = None
+
+    motion_timestamp: int = 0
+    accelerometer: Tuple[float, float, float] = (0.0, 0.0, 0.0)
+    gyroscope: Tuple[float, float, float] = (0.0, 0.0, 0.0)
