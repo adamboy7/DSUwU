@@ -27,8 +27,7 @@ def build_header(msg_type, payload):
     return header + msg
 
 def send_port_info(addr, slot):
-    mac_address = slot_mac_addresses[slot]
-    payload = struct.pack('<4B6s2B', slot, 2, 2, 2, mac_address, 5, 1)
+    payload = struct.pack('<4B6s2B', slot, 2, 2, 2, MAC_ADDRESS, 5, 1)
     packet = build_header(DSU_port_info, payload)
     sock.sendto(packet, addr)
     print(f"Sent port info for slot {slot} to {addr}")
@@ -86,8 +85,7 @@ def send_input(addr, slot, buttons1=button_mask_1(), buttons2=button_mask_2(), h
     touch1 = touchpad_input1 or touchpad_input()
     touch2 = touchpad_input2 or touchpad_input()
 
-    mac_address = slot_mac_addresses[slot]
-    payload = struct.pack('<4B6s2BI', slot, 2, 2, 2, mac_address, 5, 1, timestamp_ms)
+    payload = struct.pack('<4B6s2BI', slot, 2, 2, 2, MAC_ADDRESS, 5, 1, timestamp_ms)
     payload += struct.pack('<22B2H2B2HQ6f',
         buttons1, buttons2,
         int(home), int(touch_button),
@@ -97,7 +95,7 @@ def send_input(addr, slot, buttons1=button_mask_1(), buttons2=button_mask_2(), h
         *touch1, *touch2, timestamp_us,
         0.0, 0.0, 0.0, 0.0, 0.0, 0.0
     )
-    packet = build_header(DSU_motor_response, payload)
+    packet = build_header(DSU_button_response, payload)
     sock.sendto(packet, addr)
     print(f"Sent input to {addr} slot {slot}")
 
@@ -124,7 +122,7 @@ if __name__ == "__main__":
                             handle_version_request(addr)
                         elif msg_type == DSU_list_ports:
                             handle_list_ports(addr, data)
-                        elif msg_type == DSU_motor_request:
+                        elif msg_type == DSU_button_request:
                             handle_pad_data_request(addr, data)
 
             update_inputs(frame, controller_states, press_duration, cycle_duration)
