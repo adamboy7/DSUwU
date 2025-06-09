@@ -60,9 +60,14 @@ def handle_pad_data_request(addr, data):
         client_port_info[addr].add(slot)
     print(f"Registered input request from {addr} for slot {slot}")
 
-def send_input(addr, slot, buttons1=button_mask_1(), buttons2=button_mask_2(), home=False,
-               touch_button=False, L_stick=(0,0), R_stick=(0,0), R1=False, L1=False,
-               R2=0, L2=0, touchpad_input1=None, touchpad_input2=None):
+def send_input(addr, slot, connected=True, packet_num=0,
+               buttons1=button_mask_1(), buttons2=button_mask_2(), home=False,
+               touch_button=False, L_stick=(0, 0), R_stick=(0, 0),
+               dpad_analog=(0, 0, 0, 0), face_analog=(0, 0, 0, 0),
+               analog_R1=0, analog_L1=0, analog_R2=0, analog_L2=0,
+               touchpad_input1=None, touchpad_input2=None,
+               motion_timestamp=0,
+               accelerometer=(0.0, 0.0, 0.0), gyroscope=(0.0, 0.0, 0.0)):
     if slot not in known_slots:
         known_slots.add(slot)
         for client in list(client_port_info.keys()):
@@ -79,31 +84,34 @@ def send_input(addr, slot, buttons1=button_mask_1(), buttons2=button_mask_2(), h
     info['last_seen'] = time.time()
     info['slots'].add(slot)
 
-    timestamp_ms = int(time.time() * 1000) & 0xFFFFFFFF
-    timestamp_us = int(time.time() * 1000000)
+    counter = packet_num
+
+    motion_ts = motion_timestamp or int(time.time() * 1000000)
     touch1 = touchpad_input1 or touchpad_input()
     touch2 = touchpad_input2 or touchpad_input()
 
     mac_address = slot_mac_addresses[slot]
-    payload = struct.pack('<4B6s2BI', slot, 2, 2, 2, mac_address, 5, 1, timestamp_ms)
-    payload += struct.pack('<22B2H2B2HQ6f',
-        buttons1,  # D-Pad Left, D-Pad Down, D-Pad Right, D-Pad Up, Options, R3, L3, Share
-        buttons2,  # Y, B, A, X, R1, L1, R2, L2
-        int(home),  # home
-        int(touch_button),  # padclick (PS4)
-        *L_stick,  # left stick (X, Y)
-        *R_stick,  # right stick (X, Y)
-        0, 0, 0, 0,  # dpad pressures (Purely compliant, PS3)
-        0, 0, 0, 0,  # face button pressures (Purely compliant, PS3)
-        int(R1),  # PS3 0-255, or True/False
-        int(L1),  # PS3 0-255, or True/False
-        R2,  # 0-255
-        L2,  # 0-255
-        *touch1,  # Active, ID, X, Y
-        *touch2,  # Active, ID, X, Y
-        timestamp_us,
-        0.0, 0.0, 0.0, 0.0, 0.0, 0.0
+    payload = struct.pack('<4B6s2B', slot, 2, 2, 2, mac_address, 5, int(connected))
+    payload += struct.pack('<I', counter)
+    payload += struct.pack(
+        '<BBBBBBBBBBBBBBBBBBBB',
+        buttons1,
+        buttons2,
+        int(home),
+        int(touch_button),
+        *L_stick,
+        *R_stick,
+        *dpad_analog,
+        *face_analog,
+        analog_R1,
+        analog_L1,
+        analog_R2,
+        analog_L2,
     )
+    payload += struct.pack('<2B2H', *touch1)
+    payload += struct.pack('<2B2H', *touch2)
+    payload += struct.pack('<Q', motion_ts)
+    payload += struct.pack('<6f', *accelerometer, *gyroscope)
     packet = build_header(DSU_button_response, payload)
     sock.sendto(packet, addr)
     print(f"Sent input to {addr} slot {slot}")
@@ -151,6 +159,8 @@ if __name__ == "__main__":
             for addr in active_clients:
                 for s, state in controller_states.items():
                     send_input(addr, s, **vars(state))
+            for state in controller_states.values():
+                state.packet_num = (state.packet_num + 1) & 0xFFFFFFFF
 
             next_frame += 1 / 60.0
 
