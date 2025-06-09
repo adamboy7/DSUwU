@@ -1,5 +1,6 @@
 from typing import Optional, Tuple
 from dataclasses import dataclass
+from struct import pack
 
 def button_mask_1(share=False, l3=False, r3=False, options=False, up=False, right=False, down=False, left=False):
     return (

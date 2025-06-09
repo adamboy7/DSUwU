@@ -8,7 +8,7 @@ import threading
 
 from net_config import *
 from masks import *
-from inputs import update_inputs
+from inputs import controller_loop
 
 sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 sock.bind((UDP_IP, UDP_port))
@@ -87,12 +87,21 @@ def send_input(addr, slot, buttons1=button_mask_1(), buttons2=button_mask_2(), h
     mac_address = slot_mac_addresses[slot]
     payload = struct.pack('<4B6s2BI', slot, 2, 2, 2, mac_address, 5, 1, timestamp_ms)
     payload += struct.pack('<22B2H2B2HQ6f',
-        buttons1, buttons2,
-        int(home), int(touch_button),
-        *L_stick, *R_stick,
-        0, 0, 0, 0, 0, 0, 0, 0,
-        int(R1), int(L1), R2, L2,
-        *touch1, *touch2, timestamp_us,
+        buttons1,  # D-Pad Left, D-Pad Down, D-Pad Right, D-Pad Up, Options, R3, L3, Share
+        buttons2,  # Y, B, A, X, R1, L1, R2, L2
+        int(home),  # home
+        int(touch_button),  # padclick (PS4)
+        *L_stick,  # left stick (X, Y)
+        *R_stick,  # right stick (X, Y)
+        0, 0, 0, 0,  # dpad pressures (Purely compliant, PS3)
+        0, 0, 0, 0,  # face button pressures (Purely compliant, PS3)
+        int(R1),  # PS3 0-255, or True/False
+        int(L1),  # PS3 0-255, or True/False
+        R2,  # 0-255
+        L2,  # 0-255
+        *touch1,  # Active, ID, X, Y
+        *touch2,  # Active, ID, X, Y
+        timestamp_us,
         0.0, 0.0, 0.0, 0.0, 0.0, 0.0
     )
     packet = build_header(DSU_button_response, payload)
@@ -100,20 +109,15 @@ def send_input(addr, slot, buttons1=button_mask_1(), buttons2=button_mask_2(), h
     print(f"Sent input to {addr} slot {slot}")
 
 if __name__ == "__main__":
-    press_duration = 3
-    cycle_duration = 60
     controller_states = {slot: ControllerState() for slot in range(4)}
 
     stop_event = threading.Event()
 
-    def controller_loop():
-        frame = 0
-        while not stop_event.is_set():
-            update_inputs(frame, controller_states, press_duration, cycle_duration)
-            frame += 1
-            time.sleep(1 / 60.0)
-
-    controller_thread = threading.Thread(target=controller_loop, daemon=True)
+    controller_thread = threading.Thread(
+        target=controller_loop,
+        args=(stop_event, controller_states),
+        daemon=True,
+    )
     controller_thread.start()
 
     next_frame = time.time()
