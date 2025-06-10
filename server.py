@@ -235,7 +235,6 @@ if __name__ == "__main__":
                     if now - timestamps[i] > DSU_timeout and motors[i] != 0:
                         motors[i] = 0
                 state.motors = tuple(motors)
-            
 
     except KeyboardInterrupt:
         print("Server shutting down.")
