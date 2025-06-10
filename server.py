@@ -69,7 +69,9 @@ def handle_pad_data_request(addr, data):
     info['last_seen'] = time.time()
     info['slots'].add(slot)
     known_slots.add(slot)
-    print(f"Registered input request from {addr} for slot {slot}")
+    if slot not in logged_pad_requests:
+        print(f"Registered input request from {addr} for slot {slot}")
+        logged_pad_requests.add(slot)
 
 def handle_motor_request(addr, data):
     """Respond with the number of rumble motors for a controller slot."""
