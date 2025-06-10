@@ -11,6 +11,8 @@ server_id = random.randint(0, 0xFFFFFFFF)
 active_clients = {}
 # Set of all slots the server has advertised
 known_slots = {0}
+# Slots we have already logged input requests for
+logged_pad_requests = set()
 
 # DSU Message Types
 DSU_version_request  = 0x100000
