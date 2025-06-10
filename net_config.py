@@ -12,11 +12,10 @@ UDP_IP = "0.0.0.0"
 UDP_port = 26760
 DSU_timeout = 5.0
 
+# Server state tracking
 server_id = random.randint(0, 0xFFFFFFFF)
 # {addr: {'last_seen': float, 'slots': set()}}
 active_clients = {}
-# Tracks which port info has been announced per client
-client_port_info = {}
 # Set of all slots the server has advertised
 known_slots = {0}
 

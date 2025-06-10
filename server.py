@@ -37,6 +37,13 @@ def send_port_info(addr, slot):
     sock.sendto(packet, addr)
     print(f"Sent port info for slot {slot} to {addr}")
 
+def send_port_disconnect(addr, slot):
+    """Send a port info packet indicating the slot is disconnected."""
+    payload = b"\x00" * 12
+    packet = build_header(DSU_port_info, payload)
+    sock.sendto(packet, addr)
+    print(f"Sent port disconnect for slot {slot} to {addr}")
+
 def handle_version_request(addr):
     payload = struct.pack('<I H', DSU_version_response, PROTOCOL_VERSION)
     packet = build_header(DSU_version_response, payload[4:])
@@ -44,13 +51,17 @@ def handle_version_request(addr):
     print(f"Sent version response to {addr}")
 
 def handle_list_ports(addr, data):
+    """Respond to a list ports request."""
     if len(data) < 24:
         return
-    client_port_info.setdefault(addr, set())
-    for slot in sorted(known_slots):
-        if slot not in client_port_info[addr]:
+    # Number of ports requested
+    count, = struct.unpack_from('<I', data, 20)
+    slots = data[24:24 + count]
+    for slot in slots:
+        if slot in known_slots:
             send_port_info(addr, slot)
-            client_port_info[addr].add(slot)
+        else:
+            send_port_disconnect(addr, slot)
 
 def handle_pad_data_request(addr, data):
     if len(data) < 28:
@@ -60,10 +71,6 @@ def handle_pad_data_request(addr, data):
     info['last_seen'] = time.time()
     info['slots'].add(slot)
     known_slots.add(slot)
-    client_port_info.setdefault(addr, set())
-    if slot not in client_port_info[addr]:
-        send_port_info(addr, slot)
-        client_port_info[addr].add(slot)
     print(f"Registered input request from {addr} for slot {slot}")
 
 def handle_motor_request(addr, data):
@@ -107,15 +114,8 @@ def send_input(addr, slot, connected=True, packet_num=0,
                accelerometer=(0.0, 0.0, 0.0), gyroscope=(0.0, 0.0, 0.0)):
     if slot not in known_slots:
         known_slots.add(slot)
-        for client in list(client_port_info.keys()):
-            if slot not in client_port_info[client]:
-                send_port_info(client, slot)
-                client_port_info[client].add(slot)
-
-    client_port_info.setdefault(addr, set())
-    if slot not in client_port_info[addr]:
-        send_port_info(addr, slot)
-        client_port_info[addr].add(slot)
+        for client in active_clients.keys():
+            send_port_info(client, slot)
 
     info = active_clients.setdefault(addr, {'last_seen': time.time(), 'slots': set()})
     info['last_seen'] = time.time()
@@ -197,7 +197,6 @@ if __name__ == "__main__":
             for addr in list(active_clients.keys()):
                 if now - active_clients[addr]['last_seen'] > DSU_timeout:
                     del active_clients[addr]
-                    client_port_info.pop(addr, None)
                     print(f"Client {addr} timed out")
 
             for addr in active_clients:
