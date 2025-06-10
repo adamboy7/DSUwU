@@ -2,8 +2,6 @@ import struct
 import time
 import socket
 import zlib
-import random
-import select
 import threading
 
 from net_config import *
@@ -168,18 +166,11 @@ if __name__ == "__main__":
         thread.start()
         controller_threads.append(thread)
 
-    next_frame = time.time()
-
     try:
         while True:
-            wait = max(0, next_frame - time.time())
-            rlist, _, _ = select.select([sock], [], [], wait)
-            if rlist:
+            try:
                 while True:
-                    try:
-                        data, addr = sock.recvfrom(2048)
-                    except BlockingIOError:
-                        break
+                    data, addr = sock.recvfrom(2048)
                     if data[:4] == b'DSUC':
                         msg_type, = struct.unpack('<I', data[16:20])
                         if msg_type == DSU_version_request:
@@ -192,6 +183,8 @@ if __name__ == "__main__":
                             handle_motor_request(addr, data)
                         elif msg_type == motor_command:
                             handle_motor_command(addr, data)
+            except BlockingIOError:
+                pass
 
             now = time.time()
             for addr in list(active_clients.keys()):
@@ -233,7 +226,6 @@ if __name__ == "__main__":
                         motors[i] = 0
                 state.motors = tuple(motors)
             
-            next_frame += 1 / 60.0
 
     except KeyboardInterrupt:
         print("Server shutting down.")
