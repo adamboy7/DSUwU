@@ -155,12 +155,15 @@ if __name__ == "__main__":
 
     stop_event = threading.Event()
 
-    controller_thread = threading.Thread(
-        target=controller_loop,
-        args=(stop_event, controller_states),
-        daemon=True,
-    )
-    controller_thread.start()
+    controller_threads = []
+    for slot in controller_states:
+        thread = threading.Thread(
+            target=controller_loop,
+            args=(stop_event, controller_states, slot),
+            daemon=True,
+        )
+        thread.start()
+        controller_threads.append(thread)
 
     next_frame = time.time()
 
@@ -234,5 +237,6 @@ if __name__ == "__main__":
         print("Server shutting down.")
     finally:
         stop_event.set()
-        controller_thread.join()
+        for thread in controller_threads:
+            thread.join()
         sock.close()
