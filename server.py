@@ -29,7 +29,10 @@ def build_header(msg_type, payload):
 
 def send_port_info(addr, slot):
     mac_address = slot_mac_addresses[slot]
-    payload = struct.pack('<4B6s2B', slot, 2, 2, 2, mac_address, 5, 1)
+    if not controller_states[slot].connected:
+        payload = b"\x00" * 12
+    else:
+        payload = struct.pack('<4B6s2B', slot, 2, 2, 2, mac_address, 5, 1)
     packet = build_header(DSU_port_info, payload)
     sock.sendto(packet, addr)
     print(f"Sent port info for slot {slot} to {addr}")
