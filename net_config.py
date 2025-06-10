@@ -1,11 +1,4 @@
-import struct
-import time
-import socket
-import zlib
 import random
-
-from typing import Optional, Tuple
-from dataclasses import dataclass
 
 # Server config
 UDP_IP = "0.0.0.0"
