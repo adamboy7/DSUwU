@@ -151,7 +151,15 @@ def send_input(addr, slot, connected=True, packet_num=0,
     payload += struct.pack('<6f', *accelerometer, *gyroscope)
     packet = build_header(DSU_button_response, payload)
     sock.sendto(packet, addr)
-    print(f"Sent input to {addr} slot {slot}")
+
+    prev_state = last_button_states.get(slot)
+    current_state = (buttons1, buttons2)
+    if prev_state != current_state:
+        print(
+            f"Sent input to {addr} slot {slot}: "
+            f"buttons1=0x{buttons1:02X} buttons2=0x{buttons2:02X}"
+        )
+        last_button_states[slot] = current_state
 
 if __name__ == "__main__":
     controller_states = {slot: ControllerState() for slot in range(4)}

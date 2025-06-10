@@ -9,10 +9,12 @@ DSU_timeout = 5.0
 server_id = random.randint(0, 0xFFFFFFFF)
 # {addr: {'last_seen': float, 'slots': set()}}
 active_clients = {}
-# Set of all slots the server has advertised
+# Slots the server has already advertised
 known_slots = {0}
 # Slots we have already logged input requests for
 logged_pad_requests = set()
+# Track last button state per slot so we only log changes
+last_button_states = {}
 
 # DSU Message Types
 DSU_version_request  = 0x100000
