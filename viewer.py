@@ -5,6 +5,7 @@ import time
 import threading
 from tkinter import Tk, Label
 from tkinter import ttk
+from tkinter import Menu, simpledialog
 
 # Mapping tables for battery state and connection type values
 BATTERY_STATES = {
@@ -163,21 +164,40 @@ def parse_button_response(data: bytes):
     }
 
 class DSUClient:
-    def __init__(self, server_ip: str):
-        self.addr = (server_ip, UDP_port)
+    def __init__(self, server_ip: str, port: int = UDP_port):
+        self.server_ip = server_ip
+        self.port = port
+        self.addr = (server_ip, port)
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.sock.bind(("0.0.0.0", 0))
         self.sock.settimeout(0.1)
         self.running = False
+        self.thread = None
         self.states = {}
         self.last_request = 0.0
 
+    def restart(self, port: int):
+        """Restart client communications on a new port."""
+        self.stop()
+        self.sock.close()
+        self.port = port
+        self.addr = (self.server_ip, port)
+        self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        self.sock.bind(("0.0.0.0", 0))
+        self.sock.settimeout(0.1)
+        self.start()
+
     def start(self):
+        if self.running:
+            return
         self.running = True
-        threading.Thread(target=self._loop, daemon=True).start()
+        self.thread = threading.Thread(target=self._loop, daemon=True)
+        self.thread.start()
 
     def stop(self):
         self.running = False
+        if self.thread is not None:
+            self.thread.join(timeout=0.1)
 
     def _send(self, msg_type: int, payload: bytes = b""):
         self.sock.sendto(build_client_packet(msg_type, payload), self.addr)
@@ -249,6 +269,7 @@ class ViewerUI:
         self.client = client
         self.root = Tk()
         self.root.title("DSU Input Viewer")
+        self._build_menu()
         self.notebook = ttk.Notebook(self.root)
         self.labels = {}
         for slot in range(4):
@@ -260,6 +281,25 @@ class ViewerUI:
             self.labels[slot] = label
         self.notebook.pack(fill="both", expand=True)
         self.update()
+
+    def _build_menu(self):
+        menu = Menu(self.root)
+        self.root.config(menu=menu)
+        self.options_menu = Menu(menu, tearoff=0)
+        self.tools_menu = Menu(menu, tearoff=0)
+        menu.add_cascade(label="Options", menu=self.options_menu)
+        menu.add_cascade(label="Tools", menu=self.tools_menu)
+        self.options_menu.add_command(label="Port", command=self._change_port)
+
+    def _change_port(self):
+        port = simpledialog.askinteger(
+            "Port",
+            "Enter DSU server port:",
+            initialvalue=self.client.port,
+            parent=self.root,
+        )
+        if port is not None:
+            self.client.restart(port)
 
     def update(self):
         for slot in range(4):
