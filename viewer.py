@@ -192,6 +192,7 @@ class DSUClient:
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.sock.bind(("0.0.0.0", 0))
         self.sock.settimeout(0.1)
+        self.server_id = 0
         self.start()
 
     def set_rebroadcast(self, port: int | None):
@@ -233,7 +234,7 @@ class DSUClient:
     def _loop(self):
         # Handshake - retry until we get the server ID
         attempts = 0
-        while self.running and self.server_id == 0 and attempts < 10:
+        while self.running and self.server_id == 0:
             self._send(DSU_version_request)
             try:
                 data, _ = self.sock.recvfrom(2048)
@@ -241,7 +242,11 @@ class DSUClient:
                     self.server_id = struct.unpack_from("<I", data, 12)[0]
                     break
             except socket.timeout:
-                attempts += 1
+                pass
+            attempts += 1
+            if attempts >= 10:
+                attempts = 0
+                time.sleep(0.5)
 
         # Request port info for 4 slots
         payload = struct.pack("<I", 4) + bytes(range(4))
