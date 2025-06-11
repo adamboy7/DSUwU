@@ -171,6 +171,8 @@ class DSUClient:
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.sock.bind(("0.0.0.0", 0))
         self.sock.settimeout(0.1)
+        self.rebroadcast_sock = None
+        self.rebroadcast_addr = None
         self.running = False
         self.thread = None
         self.states = {}
@@ -187,6 +189,15 @@ class DSUClient:
         self.sock.settimeout(0.1)
         self.start()
 
+    def set_rebroadcast(self, port: int):
+        """Send received packets to localhost on the given port."""
+        if self.rebroadcast_sock is not None:
+            self.rebroadcast_sock.close()
+            self.rebroadcast_sock = None
+        if port is not None:
+            self.rebroadcast_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            self.rebroadcast_addr = ("127.0.0.1", port)
+
     def start(self):
         if self.running:
             return
@@ -198,6 +209,9 @@ class DSUClient:
         self.running = False
         if self.thread is not None:
             self.thread.join(timeout=0.1)
+        if self.rebroadcast_sock is not None:
+            self.rebroadcast_sock.close()
+            self.rebroadcast_sock = None
 
     def _send(self, msg_type: int, payload: bytes = b""):
         self.sock.sendto(build_client_packet(msg_type, payload), self.addr)
@@ -226,6 +240,8 @@ class DSUClient:
 
             try:
                 data, _ = self.sock.recvfrom(2048)
+                if self.rebroadcast_sock:
+                    self.rebroadcast_sock.sendto(data, self.rebroadcast_addr)
                 state = parse_button_response(data)
                 if state:
                     self.states[state["slot"]] = state
@@ -290,6 +306,7 @@ class ViewerUI:
         menu.add_cascade(label="Options", menu=self.options_menu)
         menu.add_cascade(label="Tools", menu=self.tools_menu)
         self.options_menu.add_command(label="Port", command=self._change_port)
+        self.tools_menu.add_command(label="Rebroadcast", command=self._set_rebroadcast)
 
     def _change_port(self):
         port = simpledialog.askinteger(
@@ -300,6 +317,16 @@ class ViewerUI:
         )
         if port is not None:
             self.client.restart(port)
+
+    def _set_rebroadcast(self):
+        port = simpledialog.askinteger(
+            "Rebroadcast",
+            "Rebroadcast to port:",
+            initialvalue=self.client.rebroadcast_addr[1] if self.client.rebroadcast_addr else 26761,
+            parent=self.root,
+        )
+        if port is not None:
+            self.client.set_rebroadcast(port)
 
     def update(self):
         for slot in range(4):
