@@ -33,6 +33,9 @@ from net_config import (
     DSU_list_ports,
     DSU_button_request,
     DSU_button_response,
+    DSU_port_info,
+    DSU_motor_request,
+    DSU_motor_response,
 )
 
 
