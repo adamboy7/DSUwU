@@ -231,14 +231,17 @@ class DSUClient:
         self.sock.sendto(build_client_packet(msg_type, payload), self.addr)
 
     def _loop(self):
-        # Handshake
-        self._send(DSU_version_request)
-        try:
-            data, _ = self.sock.recvfrom(2048)
-            if struct.unpack_from("<I", data, 16)[0] == DSU_version_response:
-                self.server_id = struct.unpack_from("<I", data, 12)[0]
-        except socket.timeout:
-            pass
+        # Handshake - retry until we get the server ID
+        attempts = 0
+        while self.running and self.server_id == 0 and attempts < 10:
+            self._send(DSU_version_request)
+            try:
+                data, _ = self.sock.recvfrom(2048)
+                if struct.unpack_from("<I", data, 16)[0] == DSU_version_response:
+                    self.server_id = struct.unpack_from("<I", data, 12)[0]
+                    break
+            except socket.timeout:
+                attempts += 1
 
         # Request port info for 4 slots
         payload = struct.pack("<I", 4) + bytes(range(4))
