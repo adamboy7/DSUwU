@@ -3,15 +3,37 @@ import time
 import socket
 import zlib
 import threading
+import argparse
 
 from net_config import *
 from masks import *
 from inputs import controller_loop
 
-sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-sock.bind((UDP_IP, UDP_port))
-sock.setblocking(False)
-print(f"Listening on UDP {UDP_IP}:{UDP_port}")
+
+def parse_server_id(value):
+    """Parse a hex server ID ensuring it fits in 32 bits."""
+    if value.lower().startswith("0x"):
+        value = value[2:]
+    if not value:
+        raise argparse.ArgumentTypeError("server ID cannot be empty")
+    if not all(c in "0123456789abcdefABCDEF" for c in value):
+        raise argparse.ArgumentTypeError("server ID must be hexadecimal")
+    if len(value) > 8:
+        raise argparse.ArgumentTypeError("server ID must be at most 8 hex digits")
+    return int(value, 16)
+
+
+def parse_arguments():
+    """Return parsed CLI arguments."""
+    parser = argparse.ArgumentParser(description="DSU server")
+    parser.add_argument("--port", type=int, help="UDP port to listen on")
+    parser.add_argument("--server-id", dest="server_id",
+                        type=parse_server_id,
+                        help="Server identifier (hex)")
+    return parser.parse_args()
+
+
+sock = None
 
 def crc_packet(header, payload):
     crc_data = header[:8] + b'\x00\x00\x00\x00' + header[12:] + payload
@@ -162,6 +184,18 @@ def send_input(addr, slot, connected=True, packet_num=0,
         last_button_states[slot] = current_state
 
 if __name__ == "__main__":
+    args = parse_arguments()
+    if args.port is not None:
+        UDP_port = args.port
+    if args.server_id is not None:
+        server_id = args.server_id
+        print(f"Using server ID 0x{server_id:08X}")
+
+    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    sock.bind((UDP_IP, UDP_port))
+    sock.setblocking(False)
+    print(f"Listening on UDP {UDP_IP}:{UDP_port}")
+
     controller_states = {slot: ControllerState() for slot in range(4)}
 
     stop_event = threading.Event()
