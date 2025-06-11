@@ -37,11 +37,12 @@ sock = None
 controller_states = None
 
 
-def serve(stop_event, states=None, port=None, server_id_override=None):
+def serve(stop_event=None, states=None, port=None, server_id_override=None):
     """Run the DSU server using the provided controller states."""
     global sock, controller_states, UDP_port, server_id
 
     controller_states = states or {slot: ControllerState() for slot in range(4)}
+    stop_event = stop_event or threading.Event()
 
     if port is not None:
         UDP_port = port
@@ -116,6 +117,8 @@ def serve(stop_event, states=None, port=None, server_id_override=None):
 
     finally:
         sock.close()
+
+    return stop_event
 
 def crc_packet(header, payload):
     crc_data = header[:8] + b'\x00\x00\x00\x00' + header[12:] + payload
