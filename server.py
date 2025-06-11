@@ -160,7 +160,7 @@ def handle_list_ports(addr, data):
     count, = struct.unpack_from('<I', data, 20)
     slots = data[24:24 + count]
     for slot in slots:
-        if slot in known_slots:
+        if slot in controller_states:
             send_port_info(addr, slot)
         else:
             send_port_disconnect(addr, slot)
