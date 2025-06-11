@@ -1,0 +1,285 @@
+import zlib
+import struct
+import socket
+import time
+import threading
+from tkinter import Tk, Label
+from tkinter import ttk
+
+# Mapping tables for battery state and connection type values
+BATTERY_STATES = {
+    0x00: "Not applicable",
+    0x01: "Dying",
+    0x02: "Low",
+    0x03: "Medium",
+    0x04: "High",
+    0x05: "Full (or almost)",
+    0xEE: "Charging",
+    0xEF: "Charged",
+}
+
+CONNECTION_TYPES = {
+    0: "N/A",
+    1: "USB",
+    2: "Bluetooth",
+}
+
+from net_config import (
+    UDP_port,
+    PROTOCOL_VERSION,
+    DSU_version_request,
+    DSU_version_response,
+    DSU_list_ports,
+    DSU_button_request,
+    DSU_button_response,
+)
+
+
+def crc_packet(header: bytes, payload: bytes) -> int:
+    data = header[:8] + b"\x00\x00\x00\x00" + header[12:] + payload
+    return zlib.crc32(data) & 0xFFFFFFFF
+
+def build_client_packet(msg_type: int, payload: bytes) -> bytes:
+    msg = struct.pack("<I", msg_type) + payload
+    length = len(msg)
+    header = struct.pack("<4sHHII", b"DSUC", PROTOCOL_VERSION, length, 0, 0)
+    crc = crc_packet(header, msg)
+    header = struct.pack("<4sHHII", b"DSUC", PROTOCOL_VERSION, length, crc, 0)
+    return header + msg
+
+
+def decode_buttons(buttons1: int, buttons2: int) -> dict:
+    """Return ordered boolean mapping for the 16 button bits."""
+    return {
+        "D-Pad Left": bool(buttons1 & 0x80),
+        "D-Pad Down": bool(buttons1 & 0x40),
+        "D-Pad Right": bool(buttons1 & 0x20),
+        "D-Pad Up": bool(buttons1 & 0x10),
+        "Options": bool(buttons1 & 0x08),
+        "R3": bool(buttons1 & 0x04),
+        "L3": bool(buttons1 & 0x02),
+        "Share": bool(buttons1 & 0x01),
+        "Y": bool(buttons2 & 0x10),
+        "B": bool(buttons2 & 0x20),
+        "A": bool(buttons2 & 0x40),
+        "X": bool(buttons2 & 0x80),
+        "R1": bool(buttons2 & 0x08),
+        "L1": bool(buttons2 & 0x04),
+        "R2": bool(buttons2 & 0x02),
+        "L2": bool(buttons2 & 0x01),
+    }
+
+
+def decode_touch(raw: tuple) -> dict:
+    """Return mapping with active flag, id and position from touch tuple."""
+    active, tid, x, y = raw
+    return {"active": bool(active), "id": tid, "pos": (x, y)}
+
+
+def parse_button_response(data: bytes):
+    if len(data) < 20:
+        return None
+    msg_type, = struct.unpack_from("<I", data, 16)
+    if msg_type != DSU_button_response:
+        return None
+
+    payload = data[20:]
+    fmt_hdr = "<4B6s2B"
+    hdr_size = struct.calcsize(fmt_hdr)
+    if len(payload) < hdr_size + 4:
+        return None
+
+    slot, model, connection_type, _, mac, battery, connected = struct.unpack_from(fmt_hdr, payload, 0)
+    packet_num, = struct.unpack_from("<I", payload, hdr_size)
+    offset = hdr_size + 4
+
+    fmt_btns = "<BBBBBBBBBBBBBBBBBBBB"
+    btn_size = struct.calcsize(fmt_btns)
+    if len(payload) < offset + btn_size:
+        return None
+    (
+        buttons1,
+        buttons2,
+        home,
+        touch_button,
+        ls_x,
+        ls_y,
+        rs_x,
+        rs_y,
+        dpad_up,
+        dpad_right,
+        dpad_down,
+        dpad_left,
+        tri,
+        cir,
+        cro,
+        sqr,
+        analog_r1,
+        analog_l1,
+        analog_r2,
+        analog_l2,
+    ) = struct.unpack_from(fmt_btns, payload, offset)
+    offset += btn_size
+
+    touch_fmt = "<2B2H"
+    tsize = struct.calcsize(touch_fmt)
+    touch1_raw = struct.unpack_from(touch_fmt, payload, offset)
+    offset += tsize
+    touch2_raw = struct.unpack_from(touch_fmt, payload, offset)
+    offset += tsize
+
+    touch1 = decode_touch(touch1_raw)
+    touch2 = decode_touch(touch2_raw)
+
+    motion_ts, = struct.unpack_from("<Q", payload, offset)
+    offset += 8
+    accel_gyro = struct.unpack_from("<6f", payload, offset)
+
+    return {
+        "slot": slot,
+        "mac": ":".join(f"{b:02X}" for b in mac),
+        "packet": packet_num,
+        "connected": bool(connected),
+        "connection_type": connection_type,
+        "battery": battery,
+        "buttons1": buttons1,
+        "buttons2": buttons2,
+        "buttons": decode_buttons(buttons1, buttons2),
+        "home": bool(home),
+        "touch_button": bool(touch_button),
+        "ls": (ls_x, ls_y),
+        "rs": (rs_x, rs_y),
+        "dpad": (dpad_up, dpad_right, dpad_down, dpad_left),
+        "face": (tri, cir, cro, sqr),
+        "analog_r1": analog_r1,
+        "analog_l1": analog_l1,
+        "analog_r2": analog_r2,
+        "analog_l2": analog_l2,
+        "touch1": touch1,
+        "touch2": touch2,
+        "motion_ts": motion_ts,
+        "accel": accel_gyro[:3],
+        "gyro": accel_gyro[3:],
+    }
+
+class DSUClient:
+    def __init__(self, server_ip: str):
+        self.addr = (server_ip, UDP_port)
+        self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        self.sock.bind(("0.0.0.0", 0))
+        self.sock.settimeout(0.1)
+        self.running = False
+        self.states = {}
+        self.last_request = 0.0
+
+    def start(self):
+        self.running = True
+        threading.Thread(target=self._loop, daemon=True).start()
+
+    def stop(self):
+        self.running = False
+
+    def _send(self, msg_type: int, payload: bytes = b""):
+        self.sock.sendto(build_client_packet(msg_type, payload), self.addr)
+
+    def _loop(self):
+        # Handshake
+        self._send(DSU_version_request)
+        try:
+            data, _ = self.sock.recvfrom(2048)
+            if struct.unpack_from("<I", data, 16)[0] == DSU_version_response:
+                pass
+        except socket.timeout:
+            pass
+
+        # Request port info for 4 slots
+        payload = struct.pack("<I", 4) + bytes(range(4))
+        self._send(DSU_list_ports, payload)
+
+        while self.running:
+            now = time.time()
+            if now - self.last_request > 1.0:
+                for slot in range(4):
+                    pld = struct.pack("B", slot) + b"\x00" * 7
+                    self._send(DSU_button_request, pld)
+                self.last_request = now
+
+            try:
+                data, _ = self.sock.recvfrom(2048)
+                state = parse_button_response(data)
+                if state:
+                    self.states[state["slot"]] = state
+            except socket.timeout:
+                pass
+
+
+def format_state(state: dict) -> str:
+    if not state:
+        return "No data"
+    lines = [
+        f"MAC: {state['mac']}",
+        f"Connected: {state['connected']}",
+        f"Packet: {state['packet']}",
+        f"Buttons1: 0x{state['buttons1']:02X}",
+        f"Buttons2: 0x{state['buttons2']:02X}",
+        f"Home: {state['home']} Touch: {state['touch_button']}",
+        f"LS: {state['ls']} RS: {state['rs']}",
+        f"Dpad: {state['dpad']} Face: {state['face']}",
+        f"Analog L1/R1: {state['analog_l1']} {state['analog_r1']}",
+        f"Analog L2/R2: {state['analog_l2']} {state['analog_r2']}",
+        f"Touch1: A={state['touch1']['active']} ID={state['touch1']['id']}"
+        f" Pos={state['touch1']['pos']}",
+        f"Touch2: A={state['touch2']['active']} ID={state['touch2']['id']}"
+        f" Pos={state['touch2']['pos']}",
+        f"Gyro: {state['gyro']}",
+        f"Accel: {state['accel']}",
+    ]
+    lines.append("Buttons:")
+    for name, pressed in state["buttons"].items():
+        lines.append(f"  {name}: {pressed}")
+    battery_text = BATTERY_STATES.get(state["battery"], f"0x{state['battery']:02X}")
+    lines.append(f"Battery: {battery_text}")
+    conn_text = CONNECTION_TYPES.get(state["connection_type"], str(state["connection_type"]))
+    lines.append(f"Connection: {conn_text}")
+    return "\n".join(lines)
+
+
+class ViewerUI:
+    def __init__(self, client: DSUClient):
+        self.client = client
+        self.root = Tk()
+        self.root.title("DSU Input Viewer")
+        self.notebook = ttk.Notebook(self.root)
+        self.labels = {}
+        for slot in range(4):
+            frame = ttk.Frame(self.notebook)
+            self.notebook.add(frame, text=f"Slot {slot}")
+            label = Label(frame, text="No data", justify="left", anchor="nw",
+                          font=("Courier", 10))
+            label.pack(fill="both", expand=True)
+            self.labels[slot] = label
+        self.notebook.pack(fill="both", expand=True)
+        self.update()
+
+    def update(self):
+        for slot in range(4):
+            state = self.client.states.get(slot)
+            self.labels[slot].config(text=format_state(state))
+        self.root.after(100, self.update)
+
+    def run(self):
+        self.root.mainloop()
+
+
+def main(server_ip: str = "127.0.0.1"):
+    client = DSUClient(server_ip)
+    client.start()
+    ui = ViewerUI(client)
+    try:
+        ui.run()
+    finally:
+        client.stop()
+
+
+if __name__ == "__main__":
+    main()
