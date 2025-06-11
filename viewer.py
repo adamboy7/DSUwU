@@ -289,6 +289,11 @@ class DSUClient:
         sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         sock.bind(("0.0.0.0", self.rebroadcast_port))
         sock.settimeout(0.1)
+
+        # Wait until we've learned the server ID from the original server
+        while self.rebroadcast_running and self.server_id == 0:
+            time.sleep(0.05)
+
         while self.rebroadcast_running:
             try:
                 data, addr = sock.recvfrom(2048)
