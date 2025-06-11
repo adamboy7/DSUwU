@@ -300,6 +300,11 @@ class DSUClient:
             time.sleep(0.05)
 
         while self.rebroadcast_running:
+            if self.server_id == 0:
+                # If the viewer reconnects to a different server, pause until we
+                # know the new server ID so clients get a valid handshake.
+                time.sleep(0.05)
+                continue
             try:
                 data, addr = sock.recvfrom(2048)
             except socket.timeout:
