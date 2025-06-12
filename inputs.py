@@ -1,27 +1,27 @@
-from masks import *
-import time
+"""Input emulation helper utilities."""
+
+import importlib.util
+
+from masks import button_mask_2
 
 press_duration = 3
 cycle_duration = 60
 frame_delay = 1 / 60.0
 
-def pulse_inputs(frame, controller_states, slot, press_duration=press_duration, cycle_duration=cycle_duration):
+
+def pulse_button(frame, controller_states, slot, **button_kwargs):
+    """Apply a pulsing button mask to ``controller_states``."""
     if frame % cycle_duration < press_duration:
-        if slot == 0:
-            controller_states[slot].buttons2 = button_mask_2(circle=True)
-        elif slot == 1:
-            controller_states[slot].buttons2 = button_mask_2(cross=True)
-        elif slot == 2:
-            controller_states[slot].buttons2 = button_mask_2(square=True)
-        elif slot == 3:
-            controller_states[slot].buttons2 = button_mask_2(triangle=True)
+        controller_states[slot].buttons2 = button_mask_2(**button_kwargs)
     else:
         controller_states[slot].buttons2 = button_mask_2()
 
 
-def controller_loop(stop_event, controller_states, slot):
-    frame = 0
-    while not stop_event.is_set():
-        pulse_inputs(frame, controller_states, slot)
-        frame += 1
-        time.sleep(frame_delay)
+def load_controller_loop(path):
+    """Load a ``controller_loop`` function from ``path``."""
+    spec = importlib.util.spec_from_file_location("input_script", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    if not hasattr(module, "controller_loop"):
+        raise AttributeError(f"{path!r} does not define 'controller_loop'")
+    return module.controller_loop

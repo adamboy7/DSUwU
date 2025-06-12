@@ -4,10 +4,11 @@ import socket
 import zlib
 import threading
 import argparse
+import os
 
 from net_config import *
 from masks import *
-from inputs import controller_loop
+from inputs import load_controller_loop
 
 
 def parse_server_id(value):
@@ -30,6 +31,13 @@ def parse_arguments():
     parser.add_argument("--server-id", dest="server_id",
                         type=parse_server_id,
                         help="Server identifier (hex)")
+    parser.add_argument(
+        "--script",
+        action="append",
+        dest="scripts",
+        default=[],
+        help="Path to input script defining controller_loop() (one per slot)",
+    )
     return parser.parse_args()
 
 
@@ -201,9 +209,23 @@ if __name__ == "__main__":
     stop_event = threading.Event()
 
     controller_threads = []
+    script_dir = os.path.dirname(__file__)
+    default_scripts = [
+        os.path.join(script_dir, "circle_loop.py"),
+        os.path.join(script_dir, "cross_loop.py"),
+        os.path.join(script_dir, "square_loop.py"),
+        os.path.join(script_dir, "triangle_loop.py"),
+    ]
+
+    scripts = args.scripts or default_scripts
+    scripts = list(scripts)
+    while len(scripts) < len(controller_states):
+        scripts.append(scripts[-1])
+
     for slot in controller_states:
+        loop_func = load_controller_loop(scripts[slot])
         thread = threading.Thread(
-            target=controller_loop,
+            target=loop_func,
             args=(stop_event, controller_states, slot),
             daemon=True,
         )
