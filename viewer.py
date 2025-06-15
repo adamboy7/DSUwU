@@ -33,7 +33,10 @@ from libraries.net_config import (
     DSU_list_ports,
     DSU_button_request,
     DSU_button_response,
+    DSU_timeout,
 )
+import libraries.net_config as net_cfg
+from server import start_server
 
 
 def crc_packet(header: bytes, payload: bytes) -> int:
@@ -175,6 +178,7 @@ class DSUClient:
         self.thread = None
         self.states = {}
         self.last_request = 0.0
+        self.server_states = None
 
     def restart(self, port: int):
         """Restart client communications on a new port."""
@@ -202,6 +206,40 @@ class DSUClient:
     def _send(self, msg_type: int, payload: bytes = b""):
         self.sock.sendto(build_client_packet(msg_type, payload), self.addr)
 
+    def _copy_to_server(self, slot: int, state: dict):
+        cs = self.server_states.get(slot)
+        if cs is None:
+            return
+        cs.connected = state["connected"]
+        cs.packet_num = state["packet"]
+        cs.buttons1 = state["buttons1"]
+        cs.buttons2 = state["buttons2"]
+        cs.home = state["home"]
+        cs.touch_button = state["touch_button"]
+        cs.L_stick = tuple(state["ls"])
+        cs.R_stick = tuple(state["rs"])
+        cs.dpad_analog = tuple(state["dpad"])
+        cs.face_analog = tuple(state["face"])
+        cs.analog_R1 = state["analog_r1"]
+        cs.analog_L1 = state["analog_l1"]
+        cs.analog_R2 = state["analog_r2"]
+        cs.analog_L2 = state["analog_l2"]
+        cs.touchpad_input1 = (
+            int(state["touch1"]["active"]),
+            state["touch1"]["id"],
+            *state["touch1"]["pos"],
+        )
+        cs.touchpad_input2 = (
+            int(state["touch2"]["active"]),
+            state["touch2"]["id"],
+            *state["touch2"]["pos"],
+        )
+        cs.motion_timestamp = state["motion_ts"]
+        cs.accelerometer = tuple(state["accel"])
+        cs.gyroscope = tuple(state["gyro"])
+        cs.battery = state["battery"]
+        net_cfg.slot_mac_addresses[slot] = bytes.fromhex(state["mac"].replace(":", ""))
+
     def _loop(self):
         # Handshake
         self._send(DSU_version_request)
@@ -228,9 +266,13 @@ class DSUClient:
                 data, _ = self.sock.recvfrom(2048)
                 state = parse_button_response(data)
                 if state:
-                    self.states[state["slot"]] = state
+                    slot = state["slot"]
+                    self.states[slot] = state
+                    if self.server_states is not None:
+                        self._copy_to_server(slot, state)
             except socket.timeout:
                 pass
+
 
 
 def format_state(state: dict) -> str:
@@ -272,6 +314,8 @@ class ViewerUI:
         self._build_menu()
         self.notebook = ttk.Notebook(self.root)
         self.labels = {}
+        self.rebroadcast_stop = None
+        self.rebroadcast_thread = None
         for slot in range(4):
             frame = ttk.Frame(self.notebook)
             self.notebook.add(frame, text=f"Slot {slot}")
@@ -290,6 +334,24 @@ class ViewerUI:
         menu.add_cascade(label="Options", menu=self.options_menu)
         menu.add_cascade(label="Tools", menu=self.tools_menu)
         self.options_menu.add_command(label="Port", command=self._change_port)
+        self.tools_menu.add_command(label="Rebroadcast", command=self._start_rebroadcast)
+
+    def _start_rebroadcast(self):
+        port = simpledialog.askinteger(
+            "Rebroadcast",
+            "Enter rebroadcast port:",
+            initialvalue=26761,
+            parent=self.root,
+        )
+        if port is None:
+            return
+        if hasattr(self, "rebroadcast_stop"):
+            self.rebroadcast_stop.set()
+            self.rebroadcast_thread.join(timeout=0.1)
+        states, stop_evt, thread = start_server(port=port, scripts=[None] * 4)
+        self.client.server_states = states
+        self.rebroadcast_stop = stop_evt
+        self.rebroadcast_thread = thread
 
     def _change_port(self):
         port = simpledialog.askinteger(
@@ -308,7 +370,12 @@ class ViewerUI:
         self.root.after(100, self.update)
 
     def run(self):
-        self.root.mainloop()
+        try:
+            self.root.mainloop()
+        finally:
+            if self.rebroadcast_stop is not None:
+                self.rebroadcast_stop.set()
+                self.rebroadcast_thread.join(timeout=0.1)
 
 
 def main(server_ip: str = "127.0.0.1"):
