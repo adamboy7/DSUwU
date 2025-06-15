@@ -7,23 +7,7 @@ from tkinter import Tk, Label
 from tkinter import ttk
 from tkinter import Menu, simpledialog
 
-# Mapping tables for battery state and connection type values
-BATTERY_STATES = {
-    0x00: "Not applicable",
-    0x01: "Dying",
-    0x02: "Low",
-    0x03: "Medium",
-    0x04: "High",
-    0x05: "Full (or almost)",
-    0xEE: "Charging",
-    0xEF: "Charged",
-}
-
-CONNECTION_TYPES = {
-    0: "N/A",
-    1: "USB",
-    2: "Bluetooth",
-}
+from libraries.masks import BATTERY_STATES, CONNECTION_TYPES
 
 from libraries.net_config import (
     UDP_port,
