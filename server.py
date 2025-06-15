@@ -6,9 +6,9 @@ import threading
 import argparse
 import os
 
-from net_config import *
-from masks import *
-from inputs import load_controller_loop
+from libraries.net_config import *
+from libraries.masks import *
+from libraries.inputs import load_controller_loop
 
 
 def parse_server_id(value):
@@ -211,10 +211,10 @@ if __name__ == "__main__":
     controller_threads = []
     script_dir = os.path.dirname(__file__)
     default_scripts = [
-        os.path.join(script_dir, "circle_loop.py"),
-        os.path.join(script_dir, "cross_loop.py"),
-        os.path.join(script_dir, "square_loop.py"),
-        os.path.join(script_dir, "triangle_loop.py"),
+        os.path.join(script_dir, "demo", "circle_loop.py"),
+        os.path.join(script_dir, "demo", "cross_loop.py"),
+        os.path.join(script_dir, "demo", "square_loop.py"),
+        os.path.join(script_dir, "demo", "triangle_loop.py"),
     ]
 
     scripts = args.scripts or default_scripts
