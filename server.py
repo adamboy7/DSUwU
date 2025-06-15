@@ -32,11 +32,24 @@ def parse_arguments():
                         type=parse_server_id,
                         help="Server identifier (hex)")
     parser.add_argument(
-        "--script",
-        action="append",
-        dest="scripts",
-        default=[],
-        help="Path to input script defining controller_loop() (one per slot)",
+        "--controller1-script",
+        dest="controller1_script",
+        help="Path to controller 1 script",
+    )
+    parser.add_argument(
+        "--controller2-script",
+        dest="controller2_script",
+        help="Path to controller 2 script",
+    )
+    parser.add_argument(
+        "--controller3-script",
+        dest="controller3_script",
+        help="Path to controller 3 script",
+    )
+    parser.add_argument(
+        "--controller4-script",
+        dest="controller4_script",
+        help="Path to controller 4 script",
     )
     return parser.parse_args()
 
@@ -217,10 +230,12 @@ if __name__ == "__main__":
         os.path.join(script_dir, "demo", "triangle_loop.py"),
     ]
 
-    scripts = args.scripts or default_scripts
-    scripts = list(scripts)
-    while len(scripts) < len(controller_states):
-        scripts.append(scripts[-1])
+    scripts = [
+        args.controller1_script or default_scripts[0],
+        args.controller2_script or default_scripts[1],
+        args.controller3_script or default_scripts[2],
+        args.controller4_script or default_scripts[3],
+    ]
 
     for slot in controller_states:
         loop_func = load_controller_loop(scripts[slot])
