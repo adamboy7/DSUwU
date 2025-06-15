@@ -2,7 +2,7 @@
 
 import importlib.util
 
-from masks import button_mask_2
+from .masks import button_mask_2
 
 press_duration = 3
 cycle_duration = 60

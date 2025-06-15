@@ -25,7 +25,7 @@ CONNECTION_TYPES = {
     2: "Bluetooth",
 }
 
-from net_config import (
+from libraries.net_config import (
     UDP_port,
     PROTOCOL_VERSION,
     DSU_version_request,
