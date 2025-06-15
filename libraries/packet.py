@@ -29,10 +29,11 @@ def build_header(msg_type: int, payload: bytes) -> bytes:
 
 def send_port_info(addr, slot):
     mac_address = slot_mac_addresses[slot]
-    if not controller_states[slot].connected:
+    state = controller_states[slot]
+    if not state.connected:
         payload = b"\x00" * 12
     else:
-        payload = struct.pack('<4B6s2B', slot, 2, 2, 2, mac_address, 5, 1)
+        payload = struct.pack('<4B6s2B', slot, 2, 2, 2, mac_address, state.battery, 1)
     packet = build_header(DSU_port_info, payload)
     sock.sendto(packet, addr)
     print(f"Sent port info for slot {slot} to {addr}")
@@ -134,6 +135,7 @@ def send_input(
     motion_timestamp=0,
     accelerometer=(0.0, 0.0, 0.0),
     gyroscope=(0.0, 0.0, 0.0),
+    battery=5,
 ):
     if slot not in known_slots:
         known_slots.add(slot)
@@ -151,7 +153,7 @@ def send_input(
     touch2 = touchpad_input2 or touchpad_input()
 
     mac_address = slot_mac_addresses[slot]
-    payload = struct.pack('<4B6s2B', slot, 2, 2, 2, mac_address, 5, int(connected))
+    payload = struct.pack('<4B6s2B', slot, 2, 2, 2, mac_address, battery, int(connected))
     payload += struct.pack('<I', counter)
     payload += struct.pack(
         '<BBBBBBBBBBBBBBBBBBBB',

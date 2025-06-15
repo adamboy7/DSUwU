@@ -54,117 +54,154 @@ def parse_arguments():
     return parser.parse_args()
 
 
+def start_server(port: int = UDP_port,
+                 server_id_value: int | None = None,
+                 scripts: list | None = None):
+    """Launch the DSU server in a background thread.
+
+    Returns a tuple of ``(controller_states, stop_event, thread)`` so callers
+    can update controller state or stop the server when done.
+    """
+
+    controller_states = {slot: ControllerState() for slot in range(4)}
+    stop_event = threading.Event()
+
+    def _thread_main() -> None:
+        nonlocal port, server_id_value, scripts
+
+        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        sock.bind((UDP_IP, port))
+        sock.setblocking(False)
+
+        packet.sock = sock
+        packet.controller_states = controller_states
+
+        if server_id_value is not None:
+            global server_id
+            server_id = server_id_value
+            packet.server_id = server_id_value
+
+        script_dir = os.path.dirname(__file__)
+        default_scripts = [
+            os.path.join(script_dir, "demo", "circle_loop.py"),
+            os.path.join(script_dir, "demo", "cross_loop.py"),
+            os.path.join(script_dir, "demo", "square_loop.py"),
+            os.path.join(script_dir, "demo", "triangle_loop.py"),
+        ]
+
+        if scripts is None:
+            use_scripts = list(default_scripts)
+        else:
+            use_scripts = []
+            for i in range(4):
+                path = scripts[i] if i < len(scripts) else None
+                use_scripts.append(path or default_scripts[i])
+
+        controller_threads: list[threading.Thread] = []
+        for slot in controller_states:
+            script_path = use_scripts[slot]
+            if script_path is None:
+                continue
+            loop_func = load_controller_loop(script_path)
+            t = threading.Thread(
+                target=loop_func,
+                args=(stop_event, controller_states, slot),
+                daemon=True,
+            )
+            t.start()
+            controller_threads.append(t)
+
+        try:
+            while not stop_event.is_set():
+                try:
+                    while True:
+                        data, addr = sock.recvfrom(2048)
+                        if data[:4] == b"DSUC":
+                            msg_type, = struct.unpack("<I", data[16:20])
+                            if msg_type == DSU_version_request:
+                                packet.handle_version_request(addr)
+                            elif msg_type == DSU_list_ports:
+                                packet.handle_list_ports(addr, data)
+                            elif msg_type == DSU_button_request:
+                                packet.handle_pad_data_request(addr, data)
+                            elif msg_type == DSU_motor_request:
+                                packet.handle_motor_request(addr, data)
+                            elif msg_type == motor_command:
+                                packet.handle_motor_command(addr, data)
+                except BlockingIOError:
+                    pass
+
+                now = time.time()
+                for addr in list(active_clients.keys()):
+                    if now - active_clients[addr]['last_seen'] > DSU_timeout:
+                        del active_clients[addr]
+                        print(f"Client {addr} timed out")
+
+                for addr in active_clients:
+                    for s, state in controller_states.items():
+                        packet.send_input(
+                            addr,
+                            s,
+                            connected=state.connected,
+                            packet_num=state.packet_num,
+                            buttons1=state.buttons1,
+                            buttons2=state.buttons2,
+                            home=state.home,
+                            touch_button=state.touch_button,
+                            L_stick=state.L_stick,
+                            R_stick=state.R_stick,
+                            dpad_analog=state.dpad_analog,
+                            face_analog=state.face_analog,
+                            analog_R1=state.analog_R1,
+                            analog_L1=state.analog_L1,
+                            analog_R2=state.analog_R2,
+                            analog_L2=state.analog_L2,
+                            touchpad_input1=state.touchpad_input1,
+                            touchpad_input2=state.touchpad_input2,
+                            motion_timestamp=state.motion_timestamp,
+                            accelerometer=state.accelerometer,
+                            gyroscope=state.gyroscope,
+                        )
+                for state in controller_states.values():
+                    state.packet_num = (state.packet_num + 1) & 0xFFFFFFFF
+                    motors = list(state.motors)
+                    timestamps = list(state.motor_timestamps)
+                    for i in range(len(motors)):
+                        if now - timestamps[i] > DSU_timeout and motors[i] != 0:
+                            motors[i] = 0
+                    state.motors = tuple(motors)
+                time.sleep(0.001)
+        finally:
+            stop_event.set()
+            for t in controller_threads:
+                t.join()
+            sock.close()
+
+    thread = threading.Thread(target=_thread_main, daemon=True)
+    thread.start()
+    return controller_states, stop_event, thread
+
+
 
 if __name__ == "__main__":
     args = parse_arguments()
-    if args.port is not None:
-        UDP_port = args.port
-    if args.server_id is not None:
-        server_id = args.server_id
-        print(f"Using server ID 0x{server_id:08X}")
-
-    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    sock.bind((UDP_IP, UDP_port))
-    sock.setblocking(False)
-    print(f"Listening on UDP {UDP_IP}:{UDP_port}")
-
-    # Make socket and state accessible to packet helpers
-    packet.sock = sock
-    controller_states = {slot: ControllerState() for slot in range(4)}
-    packet.controller_states = controller_states
-
-    stop_event = threading.Event()
-
-    controller_threads = []
-    script_dir = os.path.dirname(__file__)
-    default_scripts = [
-        os.path.join(script_dir, "demo", "circle_loop.py"),
-        os.path.join(script_dir, "demo", "cross_loop.py"),
-        os.path.join(script_dir, "demo", "square_loop.py"),
-        os.path.join(script_dir, "demo", "triangle_loop.py"),
-    ]
 
     scripts = [
-        args.controller1_script or default_scripts[0],
-        args.controller2_script or default_scripts[1],
-        args.controller3_script or default_scripts[2],
-        args.controller4_script or default_scripts[3],
+        args.controller1_script,
+        args.controller2_script,
+        args.controller3_script,
+        args.controller4_script,
     ]
 
-    for slot in controller_states:
-        loop_func = load_controller_loop(scripts[slot])
-        thread = threading.Thread(
-            target=loop_func,
-            args=(stop_event, controller_states, slot),
-            daemon=True,
-        )
-        thread.start()
-        controller_threads.append(thread)
+    controller_states, stop_event, thread = start_server(
+        port=args.port or UDP_port,
+        server_id_value=args.server_id,
+        scripts=scripts,
+    )
 
     try:
-        while True:
-            try:
-                while True:
-                    data, addr = sock.recvfrom(2048)
-                    if data[:4] == b'DSUC':
-                        msg_type, = struct.unpack('<I', data[16:20])
-                        if msg_type == DSU_version_request:
-                            packet.handle_version_request(addr)
-                        elif msg_type == DSU_list_ports:
-                            packet.handle_list_ports(addr, data)
-                        elif msg_type == DSU_button_request:
-                            packet.handle_pad_data_request(addr, data)
-                        elif msg_type == DSU_motor_request:
-                            packet.handle_motor_request(addr, data)
-                        elif msg_type == motor_command:
-                            packet.handle_motor_command(addr, data)
-            except BlockingIOError:
-                pass
-
-            now = time.time()
-            for addr in list(active_clients.keys()):
-                if now - active_clients[addr]['last_seen'] > DSU_timeout:
-                    del active_clients[addr]
-                    print(f"Client {addr} timed out")
-
-            for addr in active_clients:
-                for s, state in controller_states.items():
-                    packet.send_input(
-                        addr,
-                        s,
-                        connected=state.connected,
-                        packet_num=state.packet_num,
-                        buttons1=state.buttons1,
-                        buttons2=state.buttons2,
-                        home=state.home,
-                        touch_button=state.touch_button,
-                        L_stick=state.L_stick,
-                        R_stick=state.R_stick,
-                        dpad_analog=state.dpad_analog,
-                        face_analog=state.face_analog,
-                        analog_R1=state.analog_R1,
-                        analog_L1=state.analog_L1,
-                        analog_R2=state.analog_R2,
-                        analog_L2=state.analog_L2,
-                        touchpad_input1=state.touchpad_input1,
-                        touchpad_input2=state.touchpad_input2,
-                        motion_timestamp=state.motion_timestamp,
-                        accelerometer=state.accelerometer,
-                        gyroscope=state.gyroscope,
-                        )
-            for state in controller_states.values():
-                state.packet_num = (state.packet_num + 1) & 0xFFFFFFFF
-                motors = list(state.motors)
-                timestamps = list(state.motor_timestamps)
-                for i in range(len(motors)):
-                    if now - timestamps[i] > DSU_timeout and motors[i] != 0:
-                        motors[i] = 0
-                state.motors = tuple(motors)
-
+        thread.join()
     except KeyboardInterrupt:
         print("Server shutting down.")
-    finally:
         stop_event.set()
-        for thread in controller_threads:
-            thread.join()
-        sock.close()
+        thread.join()

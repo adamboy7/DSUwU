@@ -1,6 +1,24 @@
 from typing import Optional, Tuple
 from dataclasses import dataclass
 
+# Mapping tables for battery levels and connection type values
+BATTERY_STATES = {
+    0x00: "Not applicable",
+    0x01: "Dying",
+    0x02: "Low",
+    0x03: "Medium",
+    0x04: "High",
+    0x05: "Full (or almost)",
+    0xEE: "Charging",
+    0xEF: "Charged",
+}
+
+CONNECTION_TYPES = {
+    0: "N/A",
+    1: "USB",
+    2: "Bluetooth",
+}
+
 def button_mask_1(share=False, l3=False, r3=False, options=False, up=False, right=False, down=False, left=False):
     return (
         (0x01 if share else 0) |
@@ -61,6 +79,9 @@ class ControllerState:
     motion_timestamp: int = 0
     accelerometer: Tuple[float, float, float] = (0.0, 0.0, 0.0)
     gyroscope: Tuple[float, float, float] = (0.0, 0.0, 0.0)
+
+    # Additional metadata from the originating server
+    battery: int = 5
 
     # Rumble motor intensities and last update timestamps
     motors: Tuple[int, int] = (0, 0)
