@@ -329,9 +329,10 @@ class ViewerUI:
         )
         if port is None:
             return
-        if hasattr(self, "rebroadcast_stop"):
+        if self.rebroadcast_stop is not None:
             self.rebroadcast_stop.set()
-            self.rebroadcast_thread.join(timeout=0.1)
+            if self.rebroadcast_thread is not None:
+                self.rebroadcast_thread.join(timeout=0.1)
         states, stop_evt, thread = start_server(port=port, scripts=[None] * 4)
         self.client.server_states = states
         self.rebroadcast_stop = stop_evt
