@@ -33,6 +33,9 @@ from libraries.net_config import (
     DSU_list_ports,
     DSU_button_request,
     DSU_button_response,
+    DSU_port_info,
+    DSU_motor_request,
+    DSU_motor_response,
 )
 
 
@@ -171,6 +174,10 @@ class DSUClient:
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.sock.bind(("0.0.0.0", 0))
         self.sock.settimeout(0.1)
+        self.rebroadcast_port = None
+        self.rebroadcast_thread = None
+        self.rebroadcast_running = False
+        self.server_id = 0
         self.running = False
         self.thread = None
         self.states = {}
@@ -185,7 +192,24 @@ class DSUClient:
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.sock.bind(("0.0.0.0", 0))
         self.sock.settimeout(0.1)
+        self.server_id = 0
         self.start()
+
+    def set_rebroadcast(self, port: int | None):
+        """Start or stop rebroadcasting controller states on the given port."""
+        if self.rebroadcast_running:
+            self.rebroadcast_running = False
+            if self.rebroadcast_thread:
+                self.rebroadcast_thread.join(timeout=0.1)
+                self.rebroadcast_thread = None
+        self.rebroadcast_port = port
+        if port is not None:
+            self.rebroadcast_running = True
+            self.rebroadcast_thread = threading.Thread(
+                target=self._rebroadcast_loop,
+                daemon=True,
+            )
+            self.rebroadcast_thread.start()
 
     def start(self):
         if self.running:
@@ -198,19 +222,31 @@ class DSUClient:
         self.running = False
         if self.thread is not None:
             self.thread.join(timeout=0.1)
+        if self.rebroadcast_running:
+            self.rebroadcast_running = False
+            if self.rebroadcast_thread:
+                self.rebroadcast_thread.join(timeout=0.1)
+                self.rebroadcast_thread = None
 
     def _send(self, msg_type: int, payload: bytes = b""):
         self.sock.sendto(build_client_packet(msg_type, payload), self.addr)
 
     def _loop(self):
-        # Handshake
-        self._send(DSU_version_request)
-        try:
-            data, _ = self.sock.recvfrom(2048)
-            if struct.unpack_from("<I", data, 16)[0] == DSU_version_response:
+        # Handshake - retry until we get the server ID
+        attempts = 0
+        while self.running and self.server_id == 0:
+            self._send(DSU_version_request)
+            try:
+                data, _ = self.sock.recvfrom(2048)
+                if struct.unpack_from("<I", data, 16)[0] == DSU_version_response:
+                    self.server_id = struct.unpack_from("<I", data, 12)[0]
+                    break
+            except socket.timeout:
                 pass
-        except socket.timeout:
-            pass
+            attempts += 1
+            if attempts >= 10:
+                attempts = 0
+                time.sleep(0.5)
 
         # Request port info for 4 slots
         payload = struct.pack("<I", 4) + bytes(range(4))
@@ -231,6 +267,161 @@ class DSUClient:
                     self.states[state["slot"]] = state
             except socket.timeout:
                 pass
+
+    def _build_server_packet(self, msg_type: int, payload: bytes) -> bytes:
+        msg = struct.pack("<I", msg_type) + payload
+        length = len(msg)
+        header = struct.pack(
+            "<4sHHII",
+            b"DSUS",
+            PROTOCOL_VERSION,
+            length,
+            0,
+            self.server_id,
+        )
+        crc = crc_packet(header, msg)
+        header = struct.pack(
+            "<4sHHII",
+            b"DSUS",
+            PROTOCOL_VERSION,
+            length,
+            crc,
+            self.server_id,
+        )
+        return header + msg
+
+    def _rebroadcast_loop(self):
+        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        sock.bind(("0.0.0.0", self.rebroadcast_port))
+        sock.settimeout(0.1)
+
+        # Wait until we've learned the server ID from the original server
+        while self.rebroadcast_running and self.server_id == 0:
+            time.sleep(0.05)
+
+        while self.rebroadcast_running:
+            if self.server_id == 0:
+                # If the viewer reconnects to a different server, pause until we
+                # know the new server ID so clients get a valid handshake.
+                time.sleep(0.05)
+                continue
+            try:
+                data, addr = sock.recvfrom(2048)
+            except socket.timeout:
+                continue
+            if data[:4] != b"DSUC":
+                continue
+            msg_type, = struct.unpack_from("<I", data, 16)
+            if msg_type == DSU_version_request:
+                payload = struct.pack("<I H", DSU_version_response, PROTOCOL_VERSION)[4:]
+                packet = self._build_server_packet(DSU_version_response, payload)
+                sock.sendto(packet, addr)
+            elif msg_type == DSU_list_ports:
+                if len(data) < 24:
+                    continue
+                count, = struct.unpack_from("<I", data, 20)
+                slots = data[24:24 + count]
+                for slot in slots:
+                    state = self.states.get(slot)
+                    if state:
+                        mac = bytes.fromhex(state["mac"].replace(":", ""))
+                        payload = struct.pack(
+                            "<4B6s2B",
+                            slot,
+                            2,
+                            state["connection_type"],
+                            2,
+                            mac,
+                            state["battery"],
+                            int(state["connected"]),
+                        )
+                    else:
+                        payload = b"\x00" * 12
+                    packet = self._build_server_packet(DSU_port_info, payload)
+                    sock.sendto(packet, addr)
+            elif msg_type == DSU_button_request:
+                if len(data) < 21:
+                    continue
+                slot = data[20]
+                state = self.states.get(slot)
+                if not state:
+                    continue
+                mac = bytes.fromhex(state["mac"].replace(":", ""))
+                payload = struct.pack(
+                    "<4B6s2B",
+                    slot,
+                    2,
+                    state["connection_type"],
+                    2,
+                    mac,
+                    state["battery"],
+                    int(state["connected"]),
+                )
+                payload += struct.pack("<I", state["packet"])
+                payload += struct.pack(
+                    "<BBBBBBBBBBBBBBBBBBBB",
+                    state["buttons1"],
+                    state["buttons2"],
+                    int(state["home"]),
+                    int(state["touch_button"]),
+                    state["ls"][0],
+                    state["ls"][1],
+                    state["rs"][0],
+                    state["rs"][1],
+                    state["dpad"][0],
+                    state["dpad"][1],
+                    state["dpad"][2],
+                    state["dpad"][3],
+                    state["face"][0],
+                    state["face"][1],
+                    state["face"][2],
+                    state["face"][3],
+                    state["analog_r1"],
+                    state["analog_l1"],
+                    state["analog_r2"],
+                    state["analog_l2"],
+                )
+                payload += struct.pack(
+                    "<2B2H",
+                    int(state["touch1"]["active"]),
+                    state["touch1"]["id"],
+                    state["touch1"]["pos"][0],
+                    state["touch1"]["pos"][1],
+                )
+                payload += struct.pack(
+                    "<2B2H",
+                    int(state["touch2"]["active"]),
+                    state["touch2"]["id"],
+                    state["touch2"]["pos"][0],
+                    state["touch2"]["pos"][1],
+                )
+                payload += struct.pack("<Q", state["motion_ts"])
+                payload += struct.pack("<6f", *state["accel"], *state["gyro"])
+                packet = self._build_server_packet(DSU_button_response, payload)
+                sock.sendto(packet, addr)
+            elif msg_type == DSU_motor_request:
+                if len(data) < 28:
+                    continue
+                slot = data[20]
+                state = self.states.get(slot)
+                mac = bytes.fromhex(state["mac"].replace(":", "")) if state else b"\x00" * 6
+                conn = state["connection_type"] if state else 0
+                battery = state["battery"] if state else 0
+                connected = int(state["connected"]) if state else 0
+                payload = struct.pack(
+                    "<4B6s2B",
+                    slot,
+                    2,
+                    conn,
+                    2,
+                    mac,
+                    battery,
+                    connected,
+                )
+                payload += struct.pack("<B", 0)
+                packet = self._build_server_packet(DSU_motor_response, payload)
+                sock.sendto(packet, addr)
+        sock.close()
 
 
 def format_state(state: dict) -> str:
@@ -290,6 +481,7 @@ class ViewerUI:
         menu.add_cascade(label="Options", menu=self.options_menu)
         menu.add_cascade(label="Tools", menu=self.tools_menu)
         self.options_menu.add_command(label="Port", command=self._change_port)
+        self.tools_menu.add_command(label="Rebroadcast", command=self._set_rebroadcast)
 
     def _change_port(self):
         port = simpledialog.askinteger(
@@ -300,6 +492,16 @@ class ViewerUI:
         )
         if port is not None:
             self.client.restart(port)
+
+    def _set_rebroadcast(self):
+        port = simpledialog.askinteger(
+            "Rebroadcast",
+            "Rebroadcast to port:",
+            initialvalue=self.client.rebroadcast_port or 26761,
+            parent=self.root,
+        )
+        if port is not None:
+            self.client.set_rebroadcast(port)
 
     def update(self):
         for slot in range(4):
