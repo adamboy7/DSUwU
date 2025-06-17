@@ -63,11 +63,39 @@ def start_server(port: int = UDP_port,
     can update controller state or stop the server when done.
     """
 
-    controller_states = {slot: ControllerState() for slot in range(4)}
+    script_dir = os.path.dirname(__file__)
+    default_scripts = [
+        os.path.join(script_dir, "demo", "circle_loop.py"),
+        os.path.join(script_dir, "demo", "cross_loop.py"),
+        os.path.join(script_dir, "demo", "square_loop.py"),
+        os.path.join(script_dir, "demo", "triangle_loop.py"),
+    ]
+
+    if scripts is None:
+        use_scripts = [None] * 4
+    else:
+        use_scripts = []
+        for i in range(4):
+            if i < len(scripts):
+                path = scripts[i]
+                if path is None:
+                    use_scripts.append(None)
+                else:
+                    use_scripts.append(path)
+            else:
+                use_scripts.append(default_scripts[i])
+
+    controller_states = {}
+    for slot in range(4):
+        # If no script is assigned to the slot, default to disconnected so that
+        # we don't advertise a connected controller when rebroadcasting.
+        connected_default = use_scripts[slot] is not None
+        controller_states[slot] = ControllerState(connected=connected_default)
+
     stop_event = threading.Event()
 
     def _thread_main() -> None:
-        nonlocal port, server_id_value, scripts
+        nonlocal port, server_id_value, use_scripts
 
         sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         sock.bind((UDP_IP, port))
@@ -81,27 +109,6 @@ def start_server(port: int = UDP_port,
             server_id = server_id_value
             packet.server_id = server_id_value
 
-        script_dir = os.path.dirname(__file__)
-        default_scripts = [
-            os.path.join(script_dir, "demo", "circle_loop.py"),
-            os.path.join(script_dir, "demo", "cross_loop.py"),
-            os.path.join(script_dir, "demo", "square_loop.py"),
-            os.path.join(script_dir, "demo", "triangle_loop.py"),
-        ]
-
-        if scripts is None:
-            use_scripts = [None] * 4
-        else:
-            use_scripts = []
-            for i in range(4):
-                if i < len(scripts):
-                    path = scripts[i]
-                    if path is None:
-                        use_scripts.append(None)
-                    else:
-                        use_scripts.append(path)
-                else:
-                    use_scripts.append(default_scripts[i])
 
         controller_threads: list[threading.Thread] = []
         for slot in controller_states:
