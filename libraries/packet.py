@@ -132,8 +132,9 @@ def send_input(
     buttons2=button_mask_2(),
     home=False,
     touch_button=False,
-    L_stick=(0, 0),
-    R_stick=(0, 0),
+    # Neutral stick values use the centre position of 128.
+    L_stick=(128, 128),
+    R_stick=(128, 128),
     dpad_analog=(0, 0, 0, 0),
     face_analog=(0, 0, 0, 0),
     analog_R1=0,

@@ -65,8 +65,9 @@ class ControllerState:
     buttons2: int = button_mask_2()
     home: bool = False
     touch_button: bool = False
-    L_stick: Tuple[int, int] = (0, 0)
-    R_stick: Tuple[int, int] = (0, 0)
+    # Default axes match a centred physical controller stick.
+    L_stick: Tuple[int, int] = (128, 128)
+    R_stick: Tuple[int, int] = (128, 128)
 
     dpad_analog: Tuple[int, int, int, int] = (0, 0, 0, 0)
     face_analog: Tuple[int, int, int, int] = (0, 0, 0, 0)
@@ -98,11 +99,13 @@ class ControllerState:
         """
         no_buttons = self.buttons1 == button_mask_1() and self.buttons2 == button_mask_2()
         no_misc = not (self.home or self.touch_button)
+        # Sticks are considered centred if they are within ``dz`` of the
+        # expected neutral value (128) on both axes.
         sticks_centered = (
-            abs(self.L_stick[0]) <= dz
-            and abs(self.L_stick[1]) <= dz
-            and abs(self.R_stick[0]) <= dz
-            and abs(self.R_stick[1]) <= dz
+            abs(self.L_stick[0] - 128) <= dz
+            and abs(self.L_stick[1] - 128) <= dz
+            and abs(self.R_stick[0] - 128) <= dz
+            and abs(self.R_stick[1] - 128) <= dz
         )
         dpads_zero = self.dpad_analog == (0, 0, 0, 0) and self.face_analog == (0, 0, 0, 0)
         triggers_zero = all(v == 0 for v in (self.analog_R1, self.analog_L1, self.analog_R2, self.analog_L2))
