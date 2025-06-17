@@ -88,3 +88,20 @@ class ControllerState:
     # Rumble motor intensities and last update timestamps
     motors: Tuple[int, int] = (0, 0)
     motor_timestamps: Tuple[float, float] = (0.0, 0.0)
+
+    def is_idle(self) -> bool:
+        """Return ``True`` if no buttons, sticks, triggers or touches are active."""
+        no_buttons = self.buttons1 == button_mask_1() and self.buttons2 == button_mask_2()
+        no_misc = not (self.home or self.touch_button)
+        sticks_centered = self.L_stick == (0, 0) and self.R_stick == (0, 0)
+        dpads_zero = self.dpad_analog == (0, 0, 0, 0) and self.face_analog == (0, 0, 0, 0)
+        triggers_zero = all(v == 0 for v in (self.analog_R1, self.analog_L1, self.analog_R2, self.analog_L2))
+        touches_inactive = (
+            (self.touchpad_input1 is None or self.touchpad_input1[0] == 0)
+            and (self.touchpad_input2 is None or self.touchpad_input2[0] == 0)
+        )
+        return all([no_buttons, no_misc, sticks_centered, dpads_zero, triggers_zero, touches_inactive])
+
+    def update_connection(self) -> None:
+        """Synchronize ``connected`` with current input state."""
+        self.connected = not self.is_idle()
