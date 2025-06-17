@@ -83,7 +83,8 @@ def handle_pad_data_request(addr, data):
     info = active_clients.setdefault(addr, {'last_seen': time.time(), 'slots': set()})
     info['last_seen'] = time.time()
     info['slots'].add(slot)
-    known_slots.add(slot)
+    if controller_states[slot].connected:
+        known_slots.add(slot)
     if slot not in logged_pad_requests:
         print(f"Registered input request from {addr} for slot {slot}")
         logged_pad_requests.add(slot)
@@ -148,6 +149,8 @@ def send_input(
     battery=5,
 ):
     if slot not in known_slots:
+        if not connected:
+            return
         known_slots.add(slot)
         for client in active_clients.keys():
             send_port_info(client, slot)

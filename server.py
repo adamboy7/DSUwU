@@ -63,7 +63,7 @@ def start_server(port: int = UDP_port,
     can update controller state or stop the server when done.
     """
 
-    controller_states = {slot: ControllerState() for slot in range(4)}
+    controller_states = {slot: ControllerState(connected=False) for slot in range(4)}
     stop_event = threading.Event()
 
     def _thread_main() -> None:
@@ -102,6 +102,15 @@ def start_server(port: int = UDP_port,
                         use_scripts.append(path)
                 else:
                     use_scripts.append(default_scripts[i])
+
+        known_slots.clear()
+        for slot in controller_states:
+            controller_states[slot].connected = False
+        for slot in range(4):
+            script_path = use_scripts[slot]
+            if script_path is not None:
+                controller_states[slot].connected = True
+                known_slots.add(slot)
 
         controller_threads: list[threading.Thread] = []
         for slot in controller_states:
