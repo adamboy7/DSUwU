@@ -149,7 +149,7 @@ def start_server(port: int = UDP_port,
 
                 for s, state in controller_states.items():
                     prev_connected = state.connected
-                    state.update_connection()
+                    state.update_connection(stick_deadzone)
                     if state.connected != prev_connected:
                         if state.connected:
                             known_slots.add(s)

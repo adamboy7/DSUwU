@@ -4,6 +4,8 @@ import random
 UDP_IP = "0.0.0.0"
 UDP_port = 26760
 DSU_timeout = 5.0
+# Tolerance for analog stick drift when detecting connection status
+stick_deadzone = 3
 
 # Server state tracking
 server_id = random.randint(0, 0xFFFFFFFF)

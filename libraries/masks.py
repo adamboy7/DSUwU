@@ -1,4 +1,6 @@
 from typing import Optional, Tuple
+
+from .net_config import stick_deadzone
 from dataclasses import dataclass
 
 # Mapping tables for battery levels and connection type values
@@ -89,11 +91,19 @@ class ControllerState:
     motors: Tuple[int, int] = (0, 0)
     motor_timestamps: Tuple[float, float] = (0.0, 0.0)
 
-    def is_idle(self) -> bool:
-        """Return ``True`` if no buttons, sticks, triggers or touches are active."""
+    def is_idle(self, dz: int = stick_deadzone) -> bool:
+        """Return ``True`` if no buttons, sticks, triggers or touches are active.
+
+        ``dz`` specifies a deadzone tolerance for stick axes.
+        """
         no_buttons = self.buttons1 == button_mask_1() and self.buttons2 == button_mask_2()
         no_misc = not (self.home or self.touch_button)
-        sticks_centered = self.L_stick == (0, 0) and self.R_stick == (0, 0)
+        sticks_centered = (
+            abs(self.L_stick[0]) <= dz
+            and abs(self.L_stick[1]) <= dz
+            and abs(self.R_stick[0]) <= dz
+            and abs(self.R_stick[1]) <= dz
+        )
         dpads_zero = self.dpad_analog == (0, 0, 0, 0) and self.face_analog == (0, 0, 0, 0)
         triggers_zero = all(v == 0 for v in (self.analog_R1, self.analog_L1, self.analog_R2, self.analog_L2))
         touches_inactive = (
@@ -102,6 +112,6 @@ class ControllerState:
         )
         return all([no_buttons, no_misc, sticks_centered, dpads_zero, triggers_zero, touches_inactive])
 
-    def update_connection(self) -> None:
-        """Synchronize ``connected`` with current input state."""
-        self.connected = not self.is_idle()
+    def update_connection(self, dz: int = stick_deadzone) -> None:
+        """Synchronize ``connected`` with current input state using ``dz`` as the stick deadzone."""
+        self.connected = not self.is_idle(dz)
