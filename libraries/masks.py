@@ -55,7 +55,8 @@ def touchpad_input(active=False, touch_id=0, x=0, y=0):
 class ControllerState:
     """Current virtual controller state."""
 
-    connected: bool = True
+    # Match DS4Windows behaviour by defaulting to a disconnected state.
+    connected: bool = False
     packet_num: int = 0
 
     buttons1: int = button_mask_1()
