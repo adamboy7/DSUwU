@@ -162,6 +162,7 @@ class DSUClient:
         self.thread = None
         self.states = {}
         self.last_request = 0.0
+        self.request_interval = 1 / 60.0
         self.server_states = None
 
     def restart(self, port: int):
@@ -241,7 +242,7 @@ class DSUClient:
 
         while self.running:
             now = time.time()
-            if now - self.last_request > 1.0:
+            if now - self.last_request > self.request_interval:
                 for slot in range(4):
                     pld = struct.pack("B", slot) + b"\x00" * 7
                     self._send(DSU_button_request, pld)
