@@ -90,12 +90,18 @@ def start_server(port: int = UDP_port,
         ]
 
         if scripts is None:
-            use_scripts = list(default_scripts)
+            use_scripts = [None] * 4
         else:
             use_scripts = []
             for i in range(4):
-                path = scripts[i] if i < len(scripts) else None
-                use_scripts.append(path or default_scripts[i])
+                if i < len(scripts):
+                    path = scripts[i]
+                    if path is None:
+                        use_scripts.append(None)
+                    else:
+                        use_scripts.append(path)
+                else:
+                    use_scripts.append(default_scripts[i])
 
         controller_threads: list[threading.Thread] = []
         for slot in controller_states:
@@ -192,6 +198,14 @@ if __name__ == "__main__":
         args.controller3_script,
         args.controller4_script,
     ]
+    if not any(scripts):
+        script_dir = os.path.dirname(__file__)
+        scripts = [
+            os.path.join(script_dir, "demo", "circle_loop.py"),
+            os.path.join(script_dir, "demo", "cross_loop.py"),
+            os.path.join(script_dir, "demo", "square_loop.py"),
+            os.path.join(script_dir, "demo", "triangle_loop.py"),
+        ]
 
     controller_states, stop_event, thread = start_server(
         port=args.port or UDP_port,
