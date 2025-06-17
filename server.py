@@ -156,7 +156,6 @@ def start_server(port: int = UDP_port,
                             for client in active_clients:
                                 packet.send_port_info(client, s)
                         else:
-                            known_slots.discard(s)
                             for client in active_clients:
                                 packet.send_port_disconnect(client, s)
                     for addr in active_clients:
