@@ -56,14 +56,21 @@ def parse_arguments():
 
 def start_server(port: int = UDP_port,
                  server_id_value: int | None = None,
-                 scripts: list | None = None):
+                 scripts: list | None = None,
+                 num_slots: int = 4):
     """Launch the DSU server in a background thread.
+
+    ``num_slots`` controls how many controller slots the server will expose.
+    Slots without an associated script start disconnected.
 
     Returns a tuple of ``(controller_states, stop_event, thread)`` so callers
     can update controller state or stop the server when done.
     """
 
-    controller_states = {slot: ControllerState() for slot in range(4)}
+    controller_states = {}
+    for slot in range(num_slots):
+        state = ControllerState()
+        controller_states[slot] = state
     stop_event = threading.Event()
 
     def _thread_main() -> None:
@@ -90,10 +97,10 @@ def start_server(port: int = UDP_port,
         ]
 
         if scripts is None:
-            use_scripts = [None] * 4
+            use_scripts = [None] * num_slots
         else:
             use_scripts = []
-            for i in range(4):
+            for i in range(num_slots):
                 if i < len(scripts):
                     path = scripts[i]
                     if path is None:
@@ -101,12 +108,17 @@ def start_server(port: int = UDP_port,
                     else:
                         use_scripts.append(path)
                 else:
-                    use_scripts.append(default_scripts[i])
+                    if i < len(default_scripts):
+                        use_scripts.append(default_scripts[i])
+                    else:
+                        use_scripts.append(None)
 
         controller_threads: list[threading.Thread] = []
         for slot in controller_states:
             script_path = use_scripts[slot]
             if script_path is None:
+                controller_states[slot].connected = False
+                slot_mac_addresses[slot] = b"\x00" * 6
                 continue
             loop_func = load_controller_loop(script_path)
             t = threading.Thread(
