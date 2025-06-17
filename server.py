@@ -92,6 +92,18 @@ def start_server(port: int = UDP_port,
         connected_default = use_scripts[slot] is not None
         controller_states[slot] = ControllerState(connected=connected_default)
 
+    # Maintain per-server client tracking so rebroadcast servers don't share
+    # state with the original server or other rebroadcast instances.
+    active_clients = {}
+    known_slots = set()
+    logged_pad_requests = set()
+    last_button_states = {}
+
+    packet.active_clients = active_clients
+    packet.known_slots = known_slots
+    packet.logged_pad_requests = logged_pad_requests
+    packet.last_button_states = last_button_states
+
     stop_event = threading.Event()
 
     def _thread_main() -> None:
