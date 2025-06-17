@@ -150,8 +150,22 @@ def start_server(port: int = UDP_port,
                         del active_clients[addr]
                         print(f"Client {addr} timed out")
 
+                # Notify clients when a controller disconnects so the slot is
+                # properly marked as unused.
+                disconnected = []
+                for s, state in controller_states.items():
+                    if not state.connected and s in known_slots:
+                        for addr in active_clients:
+                            packet.send_port_disconnect(addr, s)
+                        disconnected.append(s)
+
+                for s in disconnected:
+                    known_slots.remove(s)
+
                 for addr in active_clients:
                     for s, state in controller_states.items():
+                        if not state.connected:
+                            continue
                         packet.send_input(
                             addr,
                             s,
