@@ -64,6 +64,7 @@ def start_server(port: int = UDP_port,
     """
 
     controller_states = {slot: ControllerState(connected=False) for slot in range(4)}
+    prev_connected = {slot: False for slot in range(4)}
     stop_event = threading.Event()
 
     def _thread_main() -> None:
@@ -143,6 +144,16 @@ def start_server(port: int = UDP_port,
                     if now - active_clients[addr]['last_seen'] > DSU_timeout:
                         del active_clients[addr]
                         print(f"Client {addr} timed out")
+
+                for s, state in controller_states.items():
+                    if state.connected != prev_connected[s]:
+                        for addr, info in active_clients.items():
+                            if state.connected:
+                                packet.send_port_info(addr, s)
+                            else:
+                                packet.send_port_disconnect(addr, s)
+                            info.setdefault('known_slots', set()).add(s)
+                        prev_connected[s] = state.connected
 
                 for addr, info in active_clients.items():
                     requested = info.get('slots', set())
