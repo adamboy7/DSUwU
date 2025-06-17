@@ -7,10 +7,8 @@ DSU_timeout = 5.0
 
 # Server state tracking
 server_id = random.randint(0, 0xFFFFFFFF)
-# {addr: {'last_seen': float, 'slots': set()}}
+# {addr: {'last_seen': float, 'slots': set(), 'known_slots': set()}}
 active_clients = {}
-# Slots the server has already advertised
-known_slots = {0}
 # Slots we have already logged input requests for
 logged_pad_requests = set()
 # Track last button state per slot so we only log changes

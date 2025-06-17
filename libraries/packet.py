@@ -70,20 +70,25 @@ def handle_list_ports(addr, data):
     count, = struct.unpack_from('<I', data, 20)
     slots = data[24:24 + count]
     for slot in slots:
-        if slot in known_slots:
-            send_port_info(addr, slot)
-        else:
-            send_port_disconnect(addr, slot)
+        send_port_info(addr, slot)
 
 
 def handle_pad_data_request(addr, data):
     if len(data) < 28:
         return
     slot = data[20]
-    info = active_clients.setdefault(addr, {'last_seen': time.time(), 'slots': set()})
+    info = active_clients.setdefault(addr, {'last_seen': time.time(), 'slots': set(), 'known_slots': set()})
     info['last_seen'] = time.time()
-    info['slots'].add(slot)
-    known_slots.add(slot)
+    state = controller_states.get(slot)
+    if state and state.connected:
+        info['slots'].add(slot)
+        if slot not in info['known_slots']:
+            send_port_info(addr, slot)
+            info['known_slots'].add(slot)
+    else:
+        if slot not in info['known_slots']:
+            send_port_disconnect(addr, slot)
+            info['known_slots'].add(slot)
     if slot not in logged_pad_requests:
         print(f"Registered input request from {addr} for slot {slot}")
         logged_pad_requests.add(slot)
@@ -147,12 +152,12 @@ def send_input(
     connection_type=2,
     battery=5,
 ):
-    if slot not in known_slots:
-        known_slots.add(slot)
-        for client in active_clients.keys():
+    for client, info in active_clients.items():
+        if slot not in info.get('known_slots', set()):
             send_port_info(client, slot)
+            info.setdefault('known_slots', set()).add(slot)
 
-    info = active_clients.setdefault(addr, {'last_seen': time.time(), 'slots': set()})
+    info = active_clients.setdefault(addr, {'last_seen': time.time(), 'slots': set(), 'known_slots': set()})
     info['last_seen'] = time.time()
     info['slots'].add(slot)
 

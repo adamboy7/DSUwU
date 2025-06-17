@@ -144,8 +144,12 @@ def start_server(port: int = UDP_port,
                         del active_clients[addr]
                         print(f"Client {addr} timed out")
 
-                for addr in active_clients:
-                    for s, state in controller_states.items():
+                for addr, info in active_clients.items():
+                    requested = info.get('slots', set())
+                    for s in requested:
+                        state = controller_states.get(s)
+                        if state is None or not state.connected:
+                            continue
                         packet.send_input(
                             addr,
                             s,
