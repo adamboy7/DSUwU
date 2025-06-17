@@ -221,6 +221,7 @@ class DSUClient:
         cs.motion_timestamp = state["motion_ts"]
         cs.accelerometer = tuple(state["accel"])
         cs.gyroscope = tuple(state["gyro"])
+        cs.connection_type = state["connection_type"]
         cs.battery = state["battery"]
         net_cfg.slot_mac_addresses[slot] = bytes.fromhex(state["mac"].replace(":", ""))
 

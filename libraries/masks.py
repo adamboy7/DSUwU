@@ -81,6 +81,7 @@ class ControllerState:
     gyroscope: Tuple[float, float, float] = (0.0, 0.0, 0.0)
 
     # Additional metadata from the originating server
+    connection_type: int = 2
     battery: int = 5
 
     # Rumble motor intensities and last update timestamps

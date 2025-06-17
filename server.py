@@ -167,6 +167,8 @@ def start_server(port: int = UDP_port,
                             motion_timestamp=state.motion_timestamp,
                             accelerometer=state.accelerometer,
                             gyroscope=state.gyroscope,
+                            connection_type=state.connection_type,
+                            battery=state.battery,
                         )
                 for state in controller_states.values():
                     state.packet_num = (state.packet_num + 1) & 0xFFFFFFFF
