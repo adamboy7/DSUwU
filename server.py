@@ -32,27 +32,42 @@ def parse_arguments():
     parser.add_argument("--server-id", dest="server_id",
                         type=parse_server_id,
                         help="Server identifier (hex)")
-    parser.add_argument(
-        "--controller1-script",
-        dest="controller1_script",
-        help="Path to controller 1 script",
-    )
-    parser.add_argument(
-        "--controller2-script",
-        dest="controller2_script",
-        help="Path to controller 2 script",
-    )
-    parser.add_argument(
-        "--controller3-script",
-        dest="controller3_script",
-        help="Path to controller 3 script",
-    )
-    parser.add_argument(
-        "--controller4-script",
-        dest="controller4_script",
-        help="Path to controller 4 script",
-    )
-    return parser.parse_args()
+    for i in range(1, 5):
+        parser.add_argument(
+            f"--controller{i}-script",
+            dest=f"controller{i}_script",
+            help=f"Path to controller {i} script",
+        )
+
+    args, unknown = parser.parse_known_args()
+
+    # Collect script paths for any --controllerN-script option
+    script_map = {
+        i: getattr(args, f"controller{i}_script") for i in range(1, 5)
+    }
+    i = 0
+    while i < len(unknown):
+        opt = unknown[i]
+        if opt.startswith("--controller") and opt.endswith("-script"):
+            num = opt[len("--controller"):-len("-script")]
+            if num.isdigit():
+                slot = int(num)
+                path = None
+                if i + 1 < len(unknown) and not unknown[i + 1].startswith("--"):
+                    path = unknown[i + 1]
+                    i += 1
+                script_map[slot] = path
+            else:
+                parser.error(f"Invalid option {opt}")
+        else:
+            parser.error(f"Unrecognized argument {opt}")
+        i += 1
+
+    max_slot = max(script_map)
+    scripts = [script_map.get(i) for i in range(1, max_slot + 1)]
+    args.controller_scripts = scripts
+    args.slot_count = max_slot
+    return args
 
 
 def start_server(port: int = UDP_port,
@@ -64,11 +79,16 @@ def start_server(port: int = UDP_port,
     can update controller state or stop the server when done.
     """
 
-    controller_states = {slot: ControllerState(connected=False) for slot in range(4)}
+    slot_count = len(scripts) if scripts is not None else 4
+    if slot_count > 4:
+        print("Warning: more than four controller slots is non-standard but supported.")
+    net_cfg.ensure_slot_count(slot_count)
+
+    controller_states = {slot: ControllerState(connected=False) for slot in range(slot_count)}
     stop_event = threading.Event()
 
     def _thread_main() -> None:
-        nonlocal port, server_id_value, scripts
+        nonlocal port, server_id_value, scripts, slot_count
 
         sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         sock.bind((UDP_IP, port))
@@ -91,17 +111,16 @@ def start_server(port: int = UDP_port,
             os.path.join(script_dir, "demo", "triangle_loop.py"),
         ]
 
+        while len(default_scripts) < slot_count:
+            default_scripts.append(None)
+
         if scripts is None:
-            use_scripts = [None] * 4
+            use_scripts = default_scripts[:slot_count]
         else:
             use_scripts = []
-            for i in range(4):
+            for i in range(slot_count):
                 if i < len(scripts):
-                    path = scripts[i]
-                    if path is None:
-                        use_scripts.append(None)
-                    else:
-                        use_scripts.append(path)
+                    use_scripts.append(scripts[i])
                 else:
                     use_scripts.append(default_scripts[i])
 
@@ -213,21 +232,9 @@ def start_server(port: int = UDP_port,
 
 if __name__ == "__main__":
     args = parse_arguments()
-
-    scripts = [
-        args.controller1_script,
-        args.controller2_script,
-        args.controller3_script,
-        args.controller4_script,
-    ]
+    scripts = args.controller_scripts
     if not any(scripts):
-        script_dir = os.path.dirname(__file__)
-        scripts = [
-            os.path.join(script_dir, "demo", "circle_loop.py"),
-            os.path.join(script_dir, "demo", "cross_loop.py"),
-            os.path.join(script_dir, "demo", "square_loop.py"),
-            os.path.join(script_dir, "demo", "triangle_loop.py"),
-        ]
+        scripts = None
 
     controller_states, stop_event, thread = start_server(
         port=args.port or UDP_port,

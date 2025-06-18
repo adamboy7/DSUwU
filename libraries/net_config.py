@@ -43,3 +43,11 @@ slot_mac_addresses = [
     slot3_mac_address,
     slot4_mac_address,
 ]
+
+
+def ensure_slot_count(n: int) -> None:
+    """Extend ``slot_mac_addresses`` so at least ``n`` entries exist."""
+    while len(slot_mac_addresses) < n:
+        idx = len(slot_mac_addresses) + 1
+        mac = b"\xAA\xBB\xCC\xDD\xEE" + bytes([idx & 0xFF])
+        slot_mac_addresses.append(mac)
