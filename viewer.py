@@ -302,7 +302,7 @@ class ViewerUI:
     def __init__(self, client: DSUClient):
         self.client = client
         self.root = Tk()
-        self.root.title("DSU Input Viewer")
+        self.root.title("DSOwO - Viewer")
         self._build_menu()
         self.notebook = ttk.Notebook(self.root)
         self.labels = {}
