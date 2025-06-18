@@ -27,6 +27,10 @@ are non‑standard but can be enabled by providing `--controller5-script`,
 `--controller6-script`, and so on. When extra scripts are supplied the server
 will create that many controller slots.
 
+Slots without a script start disconnected. To keep such a slot connected as an
+idle buffer, set `controller_states[slot].idle = True` after calling
+`start_server()`.
+
 ## Running the viewer
 
 The viewer connects to a DSU server and displays the state of up to four
