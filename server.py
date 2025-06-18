@@ -140,6 +140,8 @@ def start_server(port: int = UDP_port,
                                 packet.handle_motor_command(addr, data)
                 except BlockingIOError:
                     pass
+                except Exception as exc:
+                    print(f"Error processing packet: {exc}")
 
                 now = time.time()
                 for addr in list(active_clients.keys()):
@@ -193,6 +195,8 @@ def start_server(port: int = UDP_port,
                             motors[i] = 0
                     state.motors = tuple(motors)
                 time.sleep(0.001)
+        except Exception as exc:
+            print(f"Server loop crashed: {exc}")
         finally:
             stop_event.set()
             for t in controller_threads:

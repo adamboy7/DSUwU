@@ -44,23 +44,35 @@ def send_port_info(addr, slot):
             1,
         )
     packet = build_header(DSU_port_info, payload)
-    sock.sendto(packet, addr)
-    print(f"Sent port info for slot {slot} to {addr}")
+    try:
+        sock.sendto(packet, addr)
+    except OSError as exc:
+        print(f"Failed to send port info to {addr}: {exc}")
+    else:
+        print(f"Sent port info for slot {slot} to {addr}")
 
 
 def send_port_disconnect(addr, slot):
     """Send a port info packet indicating the slot is disconnected."""
     payload = b"\x00" * 12
     packet = build_header(DSU_port_info, payload)
-    sock.sendto(packet, addr)
-    print(f"Sent port disconnect for slot {slot} to {addr}")
+    try:
+        sock.sendto(packet, addr)
+    except OSError as exc:
+        print(f"Failed to send port disconnect for slot {slot} to {addr}: {exc}")
+    else:
+        print(f"Sent port disconnect for slot {slot} to {addr}")
 
 
 def handle_version_request(addr):
     payload = struct.pack('<I H', DSU_version_response, PROTOCOL_VERSION)
     packet = build_header(DSU_version_response, payload[4:])
-    sock.sendto(packet, addr)
-    print(f"Sent version response to {addr}")
+    try:
+        sock.sendto(packet, addr)
+    except OSError as exc:
+        print(f"Failed to send version response to {addr}: {exc}")
+    else:
+        print(f"Sent version response to {addr}")
 
 
 def handle_list_ports(addr, data):
@@ -100,8 +112,12 @@ def handle_motor_request(addr, data):
     payload = struct.pack('<4B6s2B', slot, 2, 2, 2, mac_address, 5, 1)
     payload += struct.pack('<B', motor_count)
     packet = build_header(DSU_motor_response, payload)
-    sock.sendto(packet, addr)
-    print(f"Sent motor count {motor_count} to {addr} slot {slot}")
+    try:
+        sock.sendto(packet, addr)
+    except OSError as exc:
+        print(f"Failed to send motor count to {addr} slot {slot}: {exc}")
+    else:
+        print(f"Sent motor count {motor_count} to {addr} slot {slot}")
 
 
 def handle_motor_command(addr, data):
@@ -198,7 +214,11 @@ def send_input(
     payload += struct.pack('<Q', motion_ts)
     payload += struct.pack('<6f', *accelerometer, *gyroscope)
     packet = build_header(DSU_button_response, payload)
-    sock.sendto(packet, addr)
+    try:
+        sock.sendto(packet, addr)
+    except OSError as exc:
+        print(f"Failed to send input packet to {addr}: {exc}")
+        return
 
     prev_state = last_button_states.get(slot)
     current_state = (buttons1, buttons2)
