@@ -185,7 +185,8 @@ class DSUClient:
     def stop(self):
         self.running = False
         if self.thread is not None:
-            self.thread.join(timeout=0.1)
+            self.thread.join()
+            self.thread = None
 
     def _send(self, msg_type: int, payload: bytes = b""):
         self.sock.sendto(build_client_packet(msg_type, payload), self.addr)
