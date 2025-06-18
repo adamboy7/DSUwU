@@ -51,3 +51,4 @@ def ensure_slot_count(n: int) -> None:
         idx = len(slot_mac_addresses) + 1
         mac = b"\xAA\xBB\xCC\xDD\xEE" + bytes([idx & 0xFF])
         slot_mac_addresses.append(mac)
+
