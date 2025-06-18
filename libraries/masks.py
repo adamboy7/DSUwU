@@ -88,6 +88,10 @@ class ControllerState:
     connection_type: int = 2
     battery: int = 5
 
+    # Mark slot as idle. When ``True`` the server keeps the slot connected
+    # even if no inputs are active so it can be used as a buffer.
+    idle: bool = False
+
     # Rumble motor intensities and last update timestamps
     motors: Tuple[int, int] = (0, 0)
     motor_timestamps: Tuple[float, float] = (0.0, 0.0)
@@ -116,5 +120,9 @@ class ControllerState:
         return all([no_buttons, no_misc, sticks_centered, dpads_zero, triggers_zero, touches_inactive])
 
     def update_connection(self, dz: int = stick_deadzone) -> None:
-        """Synchronize ``connected`` with current input state using ``dz`` as the stick deadzone."""
-        self.connected = not self.is_idle(dz)
+        """Synchronize ``connected`` with current input state using ``dz`` as the stick deadzone.
+
+        When :attr:`idle` is ``True`` the slot remains connected regardless of
+        activity.  Otherwise connection is based on :meth:`is_idle`.
+        """
+        self.connected = self.idle or not self.is_idle(dz)
