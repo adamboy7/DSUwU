@@ -165,11 +165,14 @@ class DSUClient:
         self.last_request = 0.0
         self.server_states = None
 
-    def restart(self, port: int):
-        """Restart client communications on a new port."""
+    def restart(self, port: int | None = None, server_ip: str | None = None):
+        """Restart client communications with an optional new port or server IP."""
         self.stop()
-        self.port = port
-        self.addr = (self.server_ip, port)
+        if port is not None:
+            self.port = port
+        if server_ip is not None:
+            self.server_ip = server_ip
+        self.addr = (self.server_ip, self.port)
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.sock.bind(("0.0.0.0", 0))
         self.sock.settimeout(0.1)
@@ -326,6 +329,7 @@ class ViewerUI:
         menu.add_cascade(label="Options", menu=self.options_menu)
         menu.add_cascade(label="Tools", menu=self.tools_menu)
         self.options_menu.add_command(label="Port", command=self._change_port)
+        self.options_menu.add_command(label="Remote Connection", command=self._change_remote)
         self.tools_menu.add_command(label="Rebroadcast", command=self._start_rebroadcast)
 
     def _start_rebroadcast(self):
@@ -355,6 +359,16 @@ class ViewerUI:
         )
         if port is not None:
             self.client.restart(port)
+
+    def _change_remote(self):
+        ip = simpledialog.askstring(
+            "Remote Connection",
+            "Enter DSU server IP:",
+            initialvalue=self.client.server_ip,
+            parent=self.root,
+        )
+        if ip:
+            self.client.restart(server_ip=ip)
 
     def update(self):
         for slot in range(4):

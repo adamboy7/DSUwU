@@ -34,9 +34,9 @@ python viewer.py
 ```
 
 By default it connects to `127.0.0.1` on port `26760`. The port can be changed
-from the **Options → Port** menu once the GUI is running. To connect to a
-different server IP, modify the final `main()` call in `viewer.py` or import the
-module and call `viewer.main('<server ip>')`.
+from the **Options → Port** menu once the GUI is running. Use **Options →
+Remote Connection** to connect to a different DSU server without restarting the
+program.
 
 The viewer also includes a **Rebroadcast** tool found under **Tools →
 Rebroadcast**. This feature launches a temporary DSU server that mirrors the
