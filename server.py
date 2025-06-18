@@ -27,7 +27,7 @@ def parse_server_id(value):
 
 def parse_arguments():
     """Return parsed CLI arguments."""
-    parser = argparse.ArgumentParser(description="DSU server")
+    parser = argparse.ArgumentParser(description="DSUwU - Server")
     parser.add_argument("--port", type=int, help="UDP port to listen on")
     parser.add_argument("--server-id", dest="server_id",
                         type=parse_server_id,
@@ -58,7 +58,7 @@ def parse_arguments():
 def start_server(port: int = UDP_port,
                  server_id_value: int | None = None,
                  scripts: list | None = None):
-    """Launch the DSU server in a background thread.
+    """Launch the DSUwU - Server in a background thread.
 
     Returns a tuple of ``(controller_states, stop_event, thread)`` so callers
     can update controller state or stop the server when done.
