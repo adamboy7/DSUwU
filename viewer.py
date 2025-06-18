@@ -3,6 +3,7 @@ import struct
 import socket
 import time
 import threading
+import logging
 from tkinter import Tk, Label
 from tkinter import ttk
 from tkinter import Menu, simpledialog
@@ -191,7 +192,10 @@ class DSUClient:
             self.sock = None
 
     def _send(self, msg_type: int, payload: bytes = b""):
-        self.sock.sendto(build_client_packet(msg_type, payload), self.addr)
+        try:
+            self.sock.sendto(build_client_packet(msg_type, payload), self.addr)
+        except OSError as exc:
+            logging.error("Failed to send DSU packet: %s", exc)
 
     def _copy_to_server(self, slot: int, state: dict):
         cs = self.server_states.get(slot)
