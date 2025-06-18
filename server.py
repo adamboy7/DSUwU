@@ -6,6 +6,7 @@ import argparse
 import os
 
 from libraries.net_config import *
+import libraries.net_config as net_cfg
 from libraries.masks import *
 from libraries.inputs import load_controller_loop
 from libraries import packet
@@ -80,6 +81,7 @@ def start_server(port: int = UDP_port,
             global server_id
             server_id = server_id_value
             packet.server_id = server_id_value
+            net_cfg.server_id = server_id_value
 
         script_dir = os.path.dirname(__file__)
         default_scripts = [
