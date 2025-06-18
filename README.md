@@ -17,12 +17,15 @@ No third‑party packages are required.
 ```
 python server.py [--port PORT] [--server-id HEX] [--controller1-script PATH]
                  [--controller2-script PATH] [--controller3-script PATH]
-                 [--controller4-script PATH]
+                 [--controller4-script PATH] [--controller5-script PATH ...]
 ```
 
 If no options are provided the server listens on UDP port 26760 and uses the
 example controller scripts found in `demo/` to generate input. Custom scripts can
-be supplied per slot with the `--controllerN-script` arguments.
+be supplied per slot with the `--controllerN-script` arguments. Slots beyond 4
+are non‑standard but can be enabled by providing `--controller5-script`,
+`--controller6-script`, and so on. When extra scripts are supplied the server
+will create that many controller slots.
 
 ## Running the viewer
 
