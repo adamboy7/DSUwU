@@ -6,7 +6,7 @@ import threading
 import logging
 from tkinter import Tk, Label
 from tkinter import ttk
-from tkinter import Menu, simpledialog
+from tkinter import Menu, simpledialog, messagebox
 
 from libraries.masks import BATTERY_STATES, CONNECTION_TYPES
 
@@ -269,6 +269,114 @@ class DSUClient:
                 pass
 
 
+class VirtualController:
+    """Bridge DSU input to a virtual controller via vgamepad."""
+
+    def __init__(self, client: DSUClient, slot: int = 0):
+        self.client = client
+        self.slot = slot
+        self.gamepad = None
+        self.running = False
+        self.thread = None
+        self.vg = None
+
+    def start(self) -> bool:
+        try:
+            import vgamepad as vg
+        except Exception:
+            messagebox.showerror(
+                "Virtual Controller",
+                "The 'vgamepad' package is required for this tool."
+            )
+            return False
+        self.vg = vg
+        self.gamepad = vg.VDS4Gamepad()
+        self.running = True
+        self.thread = threading.Thread(target=self._loop, daemon=True)
+        self.thread.start()
+        return True
+
+    def stop(self) -> None:
+        self.running = False
+        if self.thread is not None:
+            self.thread.join()
+            self.thread = None
+        self.gamepad = None
+
+    def _loop(self) -> None:
+        while self.running:
+            state = self.client.states.get(self.slot)
+            if state:
+                self._apply_state(state)
+            time.sleep(1 / 60.0)
+
+    def _apply_state(self, state: dict) -> None:
+        vg = self.vg
+        gp = self.gamepad
+        btns = state["buttons"]
+
+        mapping = [
+            ("A", vg.DS4_BUTTONS.DS4_BUTTON_CROSS),
+            ("B", vg.DS4_BUTTONS.DS4_BUTTON_CIRCLE),
+            ("X", vg.DS4_BUTTONS.DS4_BUTTON_SQUARE),
+            ("Y", vg.DS4_BUTTONS.DS4_BUTTON_TRIANGLE),
+            ("L1", vg.DS4_BUTTONS.DS4_BUTTON_SHOULDER_LEFT),
+            ("R1", vg.DS4_BUTTONS.DS4_BUTTON_SHOULDER_RIGHT),
+            ("L3", vg.DS4_BUTTONS.DS4_BUTTON_THUMB_LEFT),
+            ("R3", vg.DS4_BUTTONS.DS4_BUTTON_THUMB_RIGHT),
+            ("Share", vg.DS4_BUTTONS.DS4_BUTTON_SHARE),
+            ("Options", vg.DS4_BUTTONS.DS4_BUTTON_OPTIONS),
+        ]
+        for name, btn in mapping:
+            if btns.get(name):
+                gp.press_button(button=btn)
+            else:
+                gp.release_button(button=btn)
+
+        if state["home"]:
+            gp.press_button(button=vg.DS4_BUTTONS.DS4_BUTTON_PS)
+        else:
+            gp.release_button(button=vg.DS4_BUTTONS.DS4_BUTTON_PS)
+
+        if state["touch_button"]:
+            gp.press_button(button=vg.DS4_BUTTONS.DS4_BUTTON_TOUCHPAD)
+        else:
+            gp.release_button(button=vg.DS4_BUTTONS.DS4_BUTTON_TOUCHPAD)
+
+        up = btns["D-Pad Up"]
+        down = btns["D-Pad Down"]
+        left = btns["D-Pad Left"]
+        right = btns["D-Pad Right"]
+
+        direction = vg.DS4_DPAD_DIRECTIONS.DS4_BUTTON_DPAD_NONE
+        if up and right:
+            direction = vg.DS4_DPAD_DIRECTIONS.DS4_BUTTON_DPAD_NORTHEAST
+        elif up and left:
+            direction = vg.DS4_DPAD_DIRECTIONS.DS4_BUTTON_DPAD_NORTHWEST
+        elif down and right:
+            direction = vg.DS4_DPAD_DIRECTIONS.DS4_BUTTON_DPAD_SOUTHEAST
+        elif down and left:
+            direction = vg.DS4_DPAD_DIRECTIONS.DS4_BUTTON_DPAD_SOUTHWEST
+        elif up:
+            direction = vg.DS4_DPAD_DIRECTIONS.DS4_BUTTON_DPAD_NORTH
+        elif down:
+            direction = vg.DS4_DPAD_DIRECTIONS.DS4_BUTTON_DPAD_SOUTH
+        elif left:
+            direction = vg.DS4_DPAD_DIRECTIONS.DS4_BUTTON_DPAD_WEST
+        elif right:
+            direction = vg.DS4_DPAD_DIRECTIONS.DS4_BUTTON_DPAD_EAST
+        gp.directional_pad(direction=direction)
+
+        lx = (state["ls"][0] - 128) / 127.0
+        ly = (state["ls"][1] - 128) / 127.0
+        rx = (state["rs"][0] - 128) / 127.0
+        ry = (state["rs"][1] - 128) / 127.0
+        gp.left_joystick_float(x_value_float=lx, y_value_float=-ly)
+        gp.right_joystick_float(x_value_float=rx, y_value_float=-ry)
+        gp.left_trigger(value=state["analog_l2"])
+        gp.right_trigger(value=state["analog_r2"])
+        gp.update()
+
 
 def format_state(state: dict) -> str:
     if not state:
@@ -311,6 +419,8 @@ class ViewerUI:
         self.labels = {}
         self.rebroadcast_stop = None
         self.rebroadcast_thread = None
+        self.virtual_controller = None
+        self.virtual_menu_index = None
         for slot in range(4):
             frame = ttk.Frame(self.notebook)
             self.notebook.add(frame, text=f"Slot {slot}")
@@ -331,6 +441,8 @@ class ViewerUI:
         self.options_menu.add_command(label="Port", command=self._change_port)
         self.options_menu.add_command(label="Remote Connection", command=self._change_remote)
         self.tools_menu.add_command(label="Rebroadcast", command=self._start_rebroadcast)
+        self.tools_menu.add_command(label="Virtual Controller", command=self._toggle_virtual)
+        self.virtual_menu_index = self.tools_menu.index("end")
 
     def _start_rebroadcast(self):
         port = simpledialog.askinteger(
@@ -349,6 +461,30 @@ class ViewerUI:
         self.client.server_states = states
         self.rebroadcast_stop = stop_evt
         self.rebroadcast_thread = thread
+
+    def _toggle_virtual(self):
+        if self.virtual_controller is not None:
+            self.virtual_controller.stop()
+            self.virtual_controller = None
+            self.tools_menu.entryconfig(self.virtual_menu_index,
+                                        label="Virtual Controller")
+            return
+
+        slot = simpledialog.askinteger(
+            "Virtual Controller",
+            "Enter controller slot:",
+            initialvalue=0,
+            parent=self.root,
+            minvalue=0,
+            maxvalue=3,
+        )
+        if slot is None:
+            return
+        vc = VirtualController(self.client, slot)
+        if vc.start():
+            self.virtual_controller = vc
+            self.tools_menu.entryconfig(self.virtual_menu_index,
+                                        label="Stop Virtual Controller")
 
     def _change_port(self):
         port = simpledialog.askinteger(
@@ -383,6 +519,8 @@ class ViewerUI:
             if self.rebroadcast_stop is not None:
                 self.rebroadcast_stop.set()
                 self.rebroadcast_thread.join(timeout=0.1)
+            if self.virtual_controller is not None:
+                self.virtual_controller.stop()
 
 
 def main(server_ip: str = "127.0.0.1"):

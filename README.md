@@ -10,7 +10,8 @@ applications that consume DSU controller input.
 - Python 3.10 or newer (for `|` type union syntax)
 - Tkinter for the viewer (usually included with standard Python installs)
 
-No third‑party packages are required.
+No third‑party packages are required. The optional Virtual Controller tool
+relies on the `vgamepad` package, which is only available on Windows.
 
 ## Running the server
 
@@ -50,4 +51,8 @@ Rebroadcast**. This feature launches a temporary DSU server that mirrors the
 data captured by the viewer. When prompted for the rebroadcast port (default is
 `26761`), enter the desired port and the viewer will forward all input data to
 that port so other applications can consume it.
+
+Another entry under **Tools → Virtual Controller** can create a temporary
+virtual gamepad using the current slot state. This feature requires the
+`vgamepad` package and is primarily intended for Windows.
 
