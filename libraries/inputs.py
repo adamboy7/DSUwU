@@ -18,6 +18,15 @@ def pulse_button(frame, controller_states, slot, **button_kwargs):
         controller_states[slot].buttons2 = button_mask_2()
 
 
+def pulse_button_xor(frame, controller_states, slot, **button_kwargs):
+    """Toggle a button mask on ``controller_states`` using XOR."""
+    mask = button_mask_2(**button_kwargs)
+    if frame % cycle_duration == 0:
+        controller_states[slot].buttons2 ^= mask
+    if frame % cycle_duration == press_duration:
+        controller_states[slot].buttons2 ^= mask
+
+
 def load_controller_loop(path):
     """Load a ``controller_loop`` function from ``path``."""
     spec = importlib.util.spec_from_file_location("input_script", path)
