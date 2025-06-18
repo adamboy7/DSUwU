@@ -333,15 +333,24 @@ class VirtualController:
             else:
                 gp.release_button(button=btn)
 
-        if state["home"]:
-            gp.press_button(button=vg.DS4_BUTTONS.DS4_BUTTON_PS)
-        else:
-            gp.release_button(button=vg.DS4_BUTTONS.DS4_BUTTON_PS)
-
-        if state["touch_button"]:
-            gp.press_button(button=vg.DS4_BUTTONS.DS4_BUTTON_TOUCHPAD)
-        else:
-            gp.release_button(button=vg.DS4_BUTTONS.DS4_BUTTON_TOUCHPAD)
+        ps_btn = getattr(vg.DS4_BUTTONS, "DS4_BUTTON_PS", None)
+        touch_btn = getattr(vg.DS4_BUTTONS, "DS4_BUTTON_TOUCHPAD", None)
+        special = getattr(vg, "DS4_SPECIAL_BUTTONS", None)
+        if special is not None:
+            ps_btn = ps_btn or getattr(special, "DS4_BUTTON_PS",
+                                       getattr(special, "DS4_SPECIAL_BUTTON_PS", None))
+            touch_btn = touch_btn or getattr(special, "DS4_BUTTON_TOUCHPAD",
+                                             getattr(special, "DS4_SPECIAL_BUTTON_TOUCHPAD", None))
+        if ps_btn is not None:
+            if state["home"]:
+                gp.press_button(button=ps_btn)
+            else:
+                gp.release_button(button=ps_btn)
+        if touch_btn is not None:
+            if state["touch_button"]:
+                gp.press_button(button=touch_btn)
+            else:
+                gp.release_button(button=touch_btn)
 
         up = btns["D-Pad Up"]
         down = btns["D-Pad Down"]
@@ -420,7 +429,6 @@ class ViewerUI:
         self.rebroadcast_stop = None
         self.rebroadcast_thread = None
         self.virtual_controller = None
-        self.virtual_menu_index = None
         for slot in range(4):
             frame = ttk.Frame(self.notebook)
             self.notebook.add(frame, text=f"Slot {slot}")
