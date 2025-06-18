@@ -167,7 +167,6 @@ class DSUClient:
     def restart(self, port: int):
         """Restart client communications on a new port."""
         self.stop()
-        self.sock.close()
         self.port = port
         self.addr = (self.server_ip, port)
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -187,6 +186,9 @@ class DSUClient:
         if self.thread is not None:
             self.thread.join()
             self.thread = None
+        if self.sock is not None:
+            self.sock.close()
+            self.sock = None
 
     def _send(self, msg_type: int, payload: bytes = b""):
         self.sock.sendto(build_client_packet(msg_type, payload), self.addr)
