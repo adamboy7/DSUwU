@@ -69,7 +69,12 @@ def controller_loop(stop_event, controller_states, slot):
                     square=js.get_button(pygame.CONTROLLER_BUTTON_X),
                 )
 
-                home_idx = getattr(pygame, "CONTROLLER_BUTTON_GUIDE", 5)
+                # Fall back to common PS button indices when GUIDE isn't defined
+                home_idx = getattr(
+                    pygame,
+                    "CONTROLLER_BUTTON_GUIDE",
+                    16 if js.get_numbuttons() > 16 else 12,
+                )
                 touch_idx = getattr(pygame, "CONTROLLER_BUTTON_TOUCHPAD", 15)
 
                 state.home = bool(js.get_button(home_idx))
@@ -114,7 +119,12 @@ def controller_loop(stop_event, controller_states, slot):
                     square=js.get_button(2),
                 )
 
-                home_idx = getattr(pygame, "CONTROLLER_BUTTON_GUIDE", 12)
+                # Fall back to common PS button indices when GUIDE isn't defined
+                home_idx = getattr(
+                    pygame,
+                    "CONTROLLER_BUTTON_GUIDE",
+                    16 if js.get_numbuttons() > 16 else 12,
+                )
                 touch_idx = getattr(pygame, "CONTROLLER_BUTTON_TOUCHPAD", 15)
 
                 state.home = bool(js.get_button(home_idx))
