@@ -45,6 +45,11 @@ def parse_arguments():
     script_map = {
         i: getattr(args, f"controller{i}_script") for i in range(1, 5)
     }
+    # Convert literal "None" strings to actual ``None`` so slots can be
+    # initialized without a controller thread.
+    for slot, path in list(script_map.items()):
+        if isinstance(path, str) and path.lower() == "none":
+            script_map[slot] = None
     i = 0
     while i < len(unknown):
         opt = unknown[i]
@@ -56,12 +61,19 @@ def parse_arguments():
                 if i + 1 < len(unknown) and not unknown[i + 1].startswith("--"):
                     path = unknown[i + 1]
                     i += 1
+                if isinstance(path, str) and path.lower() == "none":
+                    path = None
                 script_map[slot] = path
             else:
                 parser.error(f"Invalid option {opt}")
         else:
             parser.error(f"Unrecognized argument {opt}")
         i += 1
+
+    # Normalize any "None" strings that may have come from dynamic options
+    for slot, path in list(script_map.items()):
+        if isinstance(path, str) and path.lower() == "none":
+            script_map[slot] = None
 
     max_slot = max(script_map)
     scripts = [script_map.get(i) for i in range(1, max_slot + 1)]
@@ -79,6 +91,9 @@ def start_server(port: int = UDP_port,
     can update controller state or stop the server when done.
     """
 
+    if scripts is not None:
+        scripts = [None if isinstance(s, str) and s.lower() == "none" else s
+                   for s in scripts]
     slot_count = len(scripts) if scripts is not None else 4
     if slot_count > 4:
         print("Warning: more than four controller slots is non-standard but supported.")
