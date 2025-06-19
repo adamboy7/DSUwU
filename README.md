@@ -21,7 +21,9 @@ python server.py [--port PORT] [--server-id HEX] [--controller1-script PATH]
 ```
 
 If no options are provided the server listens on UDP port 26760 and uses the
-example controller scripts found in `demo/` to generate input. Custom scripts can
+example controller scripts found in `demo/` to generate input. These include
+`circle_loop.py`, `cross_loop.py`, `square_loop.py`, `triangle_loop.py`, and an
+`idle_loop.py` that keeps a slot connected without sending input. Custom scripts can
 be supplied per slot with the `--controllerN-script` arguments. Slots beyond 4
 are non‑standard but can be enabled by providing `--controller5-script`,
 `--controller6-script`, and so on. When extra scripts are supplied the server
