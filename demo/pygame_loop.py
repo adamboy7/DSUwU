@@ -112,7 +112,9 @@ def controller_loop(stop_event, controller_states, slot):
                         square=js.get_button(15),
                     )
 
-                    state.home = bool(js.get_button(16))
+                    # Some drivers expose fewer than 17 buttons so guard
+                    # against an invalid index when mapping the PS button.
+                    state.home = bool(js.get_button(16)) if js.get_numbuttons() > 16 else False
                     state.touch_button = False
 
                     state.L_stick = (
