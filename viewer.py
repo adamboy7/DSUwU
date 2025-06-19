@@ -313,6 +313,7 @@ class ViewerUI:
         self.client = client
         self.root = Tk()
         self.root.title("DSOwO - Viewer")
+        self.capture_menu_index = None
         self._build_menu()
         self.notebook = ttk.Notebook(self.root)
         self.labels = {}
@@ -321,7 +322,6 @@ class ViewerUI:
         self.capture_file = None
         self.capture_start = None
         self.last_logged = {}
-        self.capture_menu_index = None
         for slot in range(4):
             frame = ttk.Frame(self.notebook)
             self.notebook.add(frame, text=f"Slot {slot}")
