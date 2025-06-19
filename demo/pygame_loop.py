@@ -20,6 +20,17 @@ def _scale_axis(value: float, *, centre: bool = False) -> int:
     return int(value * 255)
 
 
+def _pick_button(js, *candidates: int) -> int:
+    """Return the first valid button index from ``candidates``."""
+    num = js.get_numbuttons()
+    for idx in candidates:
+        if idx is None:
+            continue
+        if 0 <= idx < num:
+            return idx
+    return max(0, num - 1)
+
+
 def controller_loop(stop_event, controller_states, slot):
     """Update ``controller_states[slot]`` using input from the first controller."""
     if pygame is None:
@@ -69,13 +80,19 @@ def controller_loop(stop_event, controller_states, slot):
                     square=js.get_button(pygame.CONTROLLER_BUTTON_X),
                 )
 
-                # Fall back to common PS button indices when GUIDE isn't defined
-                home_idx = getattr(
-                    pygame,
-                    "CONTROLLER_BUTTON_GUIDE",
-                    16 if js.get_numbuttons() > 16 else 12,
+                # Determine PS and touchpad buttons using sensible fallbacks
+                home_idx = _pick_button(
+                    js,
+                    getattr(pygame, "CONTROLLER_BUTTON_GUIDE", None),
+                    12,
+                    16,
                 )
-                touch_idx = getattr(pygame, "CONTROLLER_BUTTON_TOUCHPAD", 15)
+                touch_idx = _pick_button(
+                    js,
+                    getattr(pygame, "CONTROLLER_BUTTON_TOUCHPAD", None),
+                    13,
+                    15,
+                )
 
                 state.home = bool(js.get_button(home_idx))
                 state.touch_button = bool(js.get_button(touch_idx))
@@ -119,13 +136,19 @@ def controller_loop(stop_event, controller_states, slot):
                     square=js.get_button(2),
                 )
 
-                # Fall back to common PS button indices when GUIDE isn't defined
-                home_idx = getattr(
-                    pygame,
-                    "CONTROLLER_BUTTON_GUIDE",
-                    16 if js.get_numbuttons() > 16 else 12,
+                # Determine PS and touchpad buttons using sensible fallbacks
+                home_idx = _pick_button(
+                    js,
+                    getattr(pygame, "CONTROLLER_BUTTON_GUIDE", None),
+                    12,
+                    16,
                 )
-                touch_idx = getattr(pygame, "CONTROLLER_BUTTON_TOUCHPAD", 15)
+                touch_idx = _pick_button(
+                    js,
+                    getattr(pygame, "CONTROLLER_BUTTON_TOUCHPAD", None),
+                    13,
+                    15,
+                )
 
                 state.home = bool(js.get_button(home_idx))
                 state.touch_button = bool(js.get_button(touch_idx))
