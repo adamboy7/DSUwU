@@ -176,12 +176,12 @@ def start_server(port: int = UDP_port,
                     if state.connected != prev_connected:
                         if state.connected:
                             known_slots.add(s)
-                            for client in active_clients:
+                            for client in list(active_clients):
                                 packet.send_port_info(client, s)
                         else:
-                            for client in active_clients:
+                            for client in list(active_clients):
                                 packet.send_port_disconnect(client, s)
-                    for addr in active_clients:
+                    for addr in list(active_clients):
                         packet.send_input(
                             addr,
                             s,

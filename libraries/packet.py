@@ -48,6 +48,7 @@ def send_port_info(addr, slot):
         sock.sendto(packet, addr)
     except OSError as exc:
         print(f"Failed to send port info to {addr}: {exc}")
+        active_clients.pop(addr, None)
     else:
         print(f"Sent port info for slot {slot} to {addr}")
 
@@ -60,6 +61,7 @@ def send_port_disconnect(addr, slot):
         sock.sendto(packet, addr)
     except OSError as exc:
         print(f"Failed to send port disconnect for slot {slot} to {addr}: {exc}")
+        active_clients.pop(addr, None)
     else:
         print(f"Sent port disconnect for slot {slot} to {addr}")
 
@@ -73,6 +75,7 @@ def handle_version_request(addr):
         sock.sendto(packet, addr)
     except OSError as exc:
         print(f"Failed to send version response to {addr}: {exc}")
+        active_clients.pop(addr, None)
     else:
         print(f"Sent version response to {addr}")
 
@@ -123,6 +126,7 @@ def handle_motor_request(addr, data):
         sock.sendto(packet, addr)
     except OSError as exc:
         print(f"Failed to send motor count to {addr} slot {slot}: {exc}")
+        active_clients.pop(addr, None)
     else:
         print(f"Sent motor count {motor_count} to {addr} slot {slot}")
 
@@ -179,7 +183,7 @@ def send_input(
         if not connected:
             return
         known_slots.add(slot)
-        for client in active_clients.keys():
+        for client in list(active_clients):
             send_port_info(client, slot)
 
     info = active_clients.get(addr)
@@ -229,6 +233,7 @@ def send_input(
         sock.sendto(packet, addr)
     except OSError as exc:
         print(f"Failed to send input packet to {addr}: {exc}")
+        active_clients.pop(addr, None)
         return
 
     prev_state = last_button_states.get(slot)
