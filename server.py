@@ -161,6 +161,9 @@ def start_server(port: int = UDP_port,
                                 packet.handle_motor_command(addr, data)
                 except BlockingIOError:
                     pass
+                except ConnectionResetError as exc:
+                    print(f"Client connection reset: {exc}")
+                    active_clients.clear()
                 except Exception as exc:
                     print(f"Error processing packet: {exc}")
 
