@@ -163,6 +163,8 @@ def start_server(port: int = UDP_port,
                     pass
                 except ConnectionResetError as exc:
                     print(f"Client connection reset: {exc}")
+                    for client in list(active_clients):
+                        print(f"Removing client {client} due to connection reset")
                     active_clients.clear()
                 except Exception as exc:
                     print(f"Error processing packet: {exc}")
