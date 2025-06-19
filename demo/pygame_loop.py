@@ -26,14 +26,18 @@ def controller_loop(stop_event, controller_states, slot):
 
     pygame.init()
 
-    use_controller = hasattr(pygame, "controller")
-    if use_controller:
+    use_controller = False
+    if hasattr(pygame, "controller"):
         pygame.controller.init()
-        if pygame.controller.get_count() == 0:
-            raise RuntimeError("No controller detected")
-        js = pygame.controller.Controller(0)
-        js.init()
-    else:
+        if pygame.controller.get_count() > 0:
+            try:
+                js = pygame.controller.Controller(0)
+                js.init()
+                use_controller = True
+            except Exception:
+                pygame.controller.quit()
+                js = None
+    if not use_controller:
         pygame.joystick.init()
         if pygame.joystick.get_count() == 0:
             raise RuntimeError("No joystick detected")
@@ -83,52 +87,97 @@ def controller_loop(stop_event, controller_states, slot):
                 state.analog_L2 = _scale_axis(js.get_axis(pygame.CONTROLLER_AXIS_TRIGGERLEFT))
                 state.analog_R2 = _scale_axis(js.get_axis(pygame.CONTROLLER_AXIS_TRIGGERRIGHT))
             else:
-                # Fallback: assume a DualShock 4 style layout
-                hat_x = hat_y = 0
-                if js.get_numhats() > 0:
-                    hat_x, hat_y = js.get_hat(0)
+                # Fallback mapping for older pygame versions
+                # Try to detect a Sixaxis/DualShock 3 layout which exposes no hat
+                if js.get_numhats() == 0 and js.get_numbuttons() >= 16:
+                    state.buttons1 = button_mask_1(
+                        share=js.get_button(0),
+                        l3=js.get_button(1),
+                        r3=js.get_button(2),
+                        options=js.get_button(3),
+                        up=js.get_button(4),
+                        right=js.get_button(5),
+                        down=js.get_button(6),
+                        left=js.get_button(7),
+                    )
 
-                state.buttons1 = button_mask_1(
-                    share=js.get_button(8),
-                    l3=js.get_button(10),
-                    r3=js.get_button(11),
-                    options=js.get_button(9),
-                    up=hat_y > 0,
-                    right=hat_x > 0,
-                    down=hat_y < 0,
-                    left=hat_x < 0,
-                )
+                    state.buttons2 = button_mask_2(
+                        l2=js.get_button(8),
+                        r2=js.get_button(9),
+                        l1=js.get_button(10),
+                        r1=js.get_button(11),
+                        triangle=js.get_button(12),
+                        circle=js.get_button(13),
+                        cross=js.get_button(14),
+                        square=js.get_button(15),
+                    )
 
-                state.buttons2 = button_mask_2(
-                    l2=js.get_axis(3) > -0.5 if js.get_numaxes() >= 6 else js.get_button(6),
-                    r2=js.get_axis(4) > -0.5 if js.get_numaxes() >= 6 else js.get_button(7),
-                    l1=js.get_button(4),
-                    r1=js.get_button(5),
-                    triangle=js.get_button(3),
-                    circle=js.get_button(2),
-                    cross=js.get_button(1),
-                    square=js.get_button(0),
-                )
+                    state.home = bool(js.get_button(16))
+                    state.touch_button = False
 
-                state.home = bool(js.get_button(12))
-                state.touch_button = bool(js.get_button(13))
+                    state.L_stick = (
+                        _scale_axis(js.get_axis(0), centre=True),
+                        _scale_axis(js.get_axis(1), centre=True),
+                    )
+                    state.R_stick = (
+                        _scale_axis(js.get_axis(2), centre=True),
+                        _scale_axis(js.get_axis(3), centre=True),
+                    )
 
-                state.L_stick = (
-                    _scale_axis(js.get_axis(0), centre=True),
-                    _scale_axis(js.get_axis(1), centre=True),
-                )
-                rs_y_axis = 5 if js.get_numaxes() >= 6 else 3
-                state.R_stick = (
-                    _scale_axis(js.get_axis(2), centre=True),
-                    _scale_axis(js.get_axis(rs_y_axis), centre=True),
-                )
-
-                if js.get_numaxes() >= 6:
-                    state.analog_L2 = _scale_axis(js.get_axis(3))
-                    state.analog_R2 = _scale_axis(js.get_axis(4))
+                    if js.get_numaxes() >= 6:
+                        state.analog_L2 = _scale_axis(js.get_axis(4))
+                        state.analog_R2 = _scale_axis(js.get_axis(5))
+                    else:
+                        state.analog_L2 = 255 if js.get_button(8) else 0
+                        state.analog_R2 = 255 if js.get_button(9) else 0
                 else:
-                    state.analog_L2 = 255 if js.get_button(6) else 0
-                    state.analog_R2 = 255 if js.get_button(7) else 0
+                    # Default DualShock 4 style layout
+                    hat_x = hat_y = 0
+                    if js.get_numhats() > 0:
+                        hat_x, hat_y = js.get_hat(0)
+
+                    state.buttons1 = button_mask_1(
+                        share=js.get_button(8),
+                        l3=js.get_button(10),
+                        r3=js.get_button(11),
+                        options=js.get_button(9),
+                        up=hat_y > 0,
+                        right=hat_x > 0,
+                        down=hat_y < 0,
+                        left=hat_x < 0,
+                    )
+
+                    state.buttons2 = button_mask_2(
+                        l2=js.get_axis(3) > -0.5 if js.get_numaxes() >= 6 else js.get_button(6),
+                        r2=js.get_axis(4) > -0.5 if js.get_numaxes() >= 6 else js.get_button(7),
+                        l1=js.get_button(4),
+                        r1=js.get_button(5),
+                        triangle=js.get_button(3),
+                        circle=js.get_button(2),
+                        cross=js.get_button(1),
+                        square=js.get_button(0),
+                    )
+
+                    state.home = bool(js.get_button(12))
+                    state.touch_button = bool(js.get_button(13))
+
+                    state.L_stick = (
+                        _scale_axis(js.get_axis(0), centre=True),
+                        _scale_axis(js.get_axis(1), centre=True),
+                    )
+
+                    rs_y_axis = 5 if js.get_numaxes() >= 6 else 3
+                    state.R_stick = (
+                        _scale_axis(js.get_axis(2), centre=True),
+                        _scale_axis(js.get_axis(rs_y_axis), centre=True),
+                    )
+
+                    if js.get_numaxes() >= 6:
+                        state.analog_L2 = _scale_axis(js.get_axis(3))
+                        state.analog_R2 = _scale_axis(js.get_axis(4))
+                    else:
+                        state.analog_L2 = 255 if js.get_button(6) else 0
+                        state.analog_R2 = 255 if js.get_button(7) else 0
 
             time.sleep(frame_delay)
     finally:
