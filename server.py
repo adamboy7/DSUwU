@@ -7,7 +7,7 @@ import os
 
 from libraries.net_config import *
 import libraries.net_config as net_cfg
-from libraries.masks import *
+from libraries.masks import ControllerState, ControllerStateDict
 from libraries.inputs import load_controller_loop
 from libraries import packet
 
@@ -45,6 +45,11 @@ def parse_arguments():
     script_map = {
         i: getattr(args, f"controller{i}_script") for i in range(1, 5)
     }
+    # Convert literal "None" strings to actual ``None`` so slots can be
+    # initialized without a controller thread.
+    for slot, path in list(script_map.items()):
+        if isinstance(path, str) and path.lower() == "none":
+            script_map[slot] = None
     i = 0
     while i < len(unknown):
         opt = unknown[i]
@@ -56,12 +61,19 @@ def parse_arguments():
                 if i + 1 < len(unknown) and not unknown[i + 1].startswith("--"):
                     path = unknown[i + 1]
                     i += 1
+                if isinstance(path, str) and path.lower() == "none":
+                    path = None
                 script_map[slot] = path
             else:
                 parser.error(f"Invalid option {opt}")
         else:
             parser.error(f"Unrecognized argument {opt}")
         i += 1
+
+    # Normalize any "None" strings that may have come from dynamic options
+    for slot, path in list(script_map.items()):
+        if isinstance(path, str) and path.lower() == "none":
+            script_map[slot] = None
 
     max_slot = max(script_map)
     scripts = [script_map.get(i) for i in range(1, max_slot + 1)]
@@ -79,12 +91,15 @@ def start_server(port: int = UDP_port,
     can update controller state or stop the server when done.
     """
 
+    if scripts is not None:
+        scripts = [None if isinstance(s, str) and s.lower() == "none" else s
+                   for s in scripts]
     slot_count = len(scripts) if scripts is not None else 4
     if slot_count > 4:
         print("Warning: more than four controller slots is non-standard but supported.")
     net_cfg.ensure_slot_count(slot_count)
 
-    controller_states = {slot: ControllerState(connected=False) for slot in range(slot_count)}
+    controller_states = ControllerStateDict({slot: ControllerState(connected=False) for slot in range(slot_count)})
     stop_event = threading.Event()
 
     def _thread_main() -> None:
@@ -125,11 +140,11 @@ def start_server(port: int = UDP_port,
                     use_scripts.append(default_scripts[i])
 
         known_slots.clear()
-        for slot in controller_states:
+        for slot in list(controller_states):
             controller_states[slot].connected = False
 
         controller_threads: list[threading.Thread] = []
-        for slot in controller_states:
+        for slot in list(controller_states):
             script_path = use_scripts[slot]
             if script_path is None:
                 continue
@@ -175,7 +190,7 @@ def start_server(port: int = UDP_port,
                         del active_clients[addr]
                         print(f"Client {addr} timed out")
 
-                for s, state in controller_states.items():
+                for s, state in list(controller_states.items()):
                     prev_connected = state.connected
                     state.update_connection(stick_deadzone)
                     if state.connected != prev_connected:
@@ -212,7 +227,7 @@ def start_server(port: int = UDP_port,
                             connection_type=state.connection_type,
                             battery=state.battery,
                         )
-                for state in controller_states.values():
+                for state in list(controller_states.values()):
                     state.packet_num = (state.packet_num + 1) & 0xFFFFFFFF
                     motors = list(state.motors)
                     timestamps = list(state.motor_timestamps)

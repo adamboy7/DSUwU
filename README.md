@@ -27,11 +27,15 @@ example controller scripts found in `demo/` to generate input. These include
 be supplied per slot with the `--controllerN-script` arguments. Slots beyond 4
 are non‑standard but can be enabled by providing `--controller5-script`,
 `--controller6-script`, and so on. When extra scripts are supplied the server
-will create that many controller slots.
+will create that many controller slots. Use `None` to omit the controller
+thread for a slot while still allocating it.
 
 Slots without a script start disconnected. To keep such a slot connected as an
 idle buffer, set `controller_states[slot].idle = True` after calling
-`start_server()`.
+`start_server()`. Accessing a non-existent slot will automatically create it so
+no extra setup is required.
+Passing `None` as the script path (any case) initializes a slot without running
+a controller loop.
 
 ## Running the viewer
 
