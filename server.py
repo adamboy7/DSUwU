@@ -140,11 +140,11 @@ def start_server(port: int = UDP_port,
                     use_scripts.append(default_scripts[i])
 
         known_slots.clear()
-        for slot in controller_states:
+        for slot in list(controller_states):
             controller_states[slot].connected = False
 
         controller_threads: list[threading.Thread] = []
-        for slot in controller_states:
+        for slot in list(controller_states):
             script_path = use_scripts[slot]
             if script_path is None:
                 continue
@@ -190,7 +190,7 @@ def start_server(port: int = UDP_port,
                         del active_clients[addr]
                         print(f"Client {addr} timed out")
 
-                for s, state in controller_states.items():
+                for s, state in list(controller_states.items()):
                     prev_connected = state.connected
                     state.update_connection(stick_deadzone)
                     if state.connected != prev_connected:
@@ -227,7 +227,7 @@ def start_server(port: int = UDP_port,
                             connection_type=state.connection_type,
                             battery=state.battery,
                         )
-                for state in controller_states.values():
+                for state in list(controller_states.values()):
                     state.packet_num = (state.packet_num + 1) & 0xFFFFFFFF
                     motors = list(state.motors)
                     timestamps = list(state.motor_timestamps)
