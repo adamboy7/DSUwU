@@ -69,8 +69,11 @@ def controller_loop(stop_event, controller_states, slot):
                     square=js.get_button(pygame.CONTROLLER_BUTTON_X),
                 )
 
-                state.home = bool(js.get_button(5))
-                state.touch_button = bool(js.get_button(15))
+                home_idx = getattr(pygame, "CONTROLLER_BUTTON_GUIDE", 5)
+                touch_idx = getattr(pygame, "CONTROLLER_BUTTON_TOUCHPAD", 15)
+
+                state.home = bool(js.get_button(home_idx))
+                state.touch_button = bool(js.get_button(touch_idx))
 
                 state.L_stick = (
                     _scale_axis(js.get_axis(pygame.CONTROLLER_AXIS_LEFTX), centre=True),
@@ -111,8 +114,11 @@ def controller_loop(stop_event, controller_states, slot):
                     square=js.get_button(2),
                 )
 
-                state.home = bool(js.get_button(14))
-                state.touch_button = bool(js.get_button(15))
+                home_idx = getattr(pygame, "CONTROLLER_BUTTON_GUIDE", 12)
+                touch_idx = getattr(pygame, "CONTROLLER_BUTTON_TOUCHPAD", 15)
+
+                state.home = bool(js.get_button(home_idx))
+                state.touch_button = bool(js.get_button(touch_idx))
 
                 state.L_stick = (
                     _scale_axis(js.get_axis(0), centre=True),
