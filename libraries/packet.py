@@ -48,6 +48,7 @@ def send_port_info(addr, slot):
         sock.sendto(packet, addr)
     except OSError as exc:
         print(f"Failed to send port info to {addr}: {exc}")
+        active_clients.pop(addr, None)
     else:
         print(f"Sent port info for slot {slot} to {addr}")
 
@@ -60,6 +61,7 @@ def send_port_disconnect(addr, slot):
         sock.sendto(packet, addr)
     except OSError as exc:
         print(f"Failed to send port disconnect for slot {slot} to {addr}: {exc}")
+        active_clients.pop(addr, None)
     else:
         print(f"Sent port disconnect for slot {slot} to {addr}")
 
@@ -67,10 +69,13 @@ def send_port_disconnect(addr, slot):
 def handle_version_request(addr):
     payload = struct.pack('<I H', DSU_version_response, PROTOCOL_VERSION)
     packet = build_header(DSU_version_response, payload[4:])
+    info = active_clients.setdefault(addr, {'last_seen': time.time(), 'slots': set()})
+    info['last_seen'] = time.time()
     try:
         sock.sendto(packet, addr)
     except OSError as exc:
         print(f"Failed to send version response to {addr}: {exc}")
+        active_clients.pop(addr, None)
     else:
         print(f"Sent version response to {addr}")
 
@@ -79,6 +84,8 @@ def handle_list_ports(addr, data):
     """Respond to a list ports request."""
     if len(data) < 24:
         return
+    info = active_clients.setdefault(addr, {'last_seen': time.time(), 'slots': set()})
+    info['last_seen'] = time.time()
     count, = struct.unpack_from('<I', data, 20)
     slots = data[24:24 + count]
     for slot in slots:
@@ -107,6 +114,9 @@ def handle_motor_request(addr, data):
     if len(data) < 28:
         return
     slot = data[20]
+    info = active_clients.setdefault(addr, {'last_seen': time.time(), 'slots': set()})
+    info['last_seen'] = time.time()
+    info['slots'].add(slot)
     mac_address = slot_mac_addresses[slot]
     motor_count = len(controller_states[slot].motors)
     payload = struct.pack('<4B6s2B', slot, 2, 2, 2, mac_address, 5, 1)
@@ -116,6 +126,7 @@ def handle_motor_request(addr, data):
         sock.sendto(packet, addr)
     except OSError as exc:
         print(f"Failed to send motor count to {addr} slot {slot}: {exc}")
+        active_clients.pop(addr, None)
     else:
         print(f"Sent motor count {motor_count} to {addr} slot {slot}")
 
@@ -125,6 +136,9 @@ def handle_motor_command(addr, data):
     if len(data) < 30:
         return
     slot = data[20]
+    info = active_clients.setdefault(addr, {'last_seen': time.time(), 'slots': set()})
+    info['last_seen'] = time.time()
+    info['slots'].add(slot)
     motor_id = data[28]
     intensity = data[29]
     state = controller_states.get(slot)
@@ -169,11 +183,12 @@ def send_input(
         if not connected:
             return
         known_slots.add(slot)
-        for client in active_clients.keys():
+        for client in list(active_clients):
             send_port_info(client, slot)
 
-    info = active_clients.setdefault(addr, {'last_seen': time.time(), 'slots': set()})
-    info['last_seen'] = time.time()
+    info = active_clients.get(addr)
+    if info is None:
+        return
     info['slots'].add(slot)
 
     counter = packet_num
@@ -218,6 +233,7 @@ def send_input(
         sock.sendto(packet, addr)
     except OSError as exc:
         print(f"Failed to send input packet to {addr}: {exc}")
+        active_clients.pop(addr, None)
         return
 
     prev_state = last_button_states.get(slot)
