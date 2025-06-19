@@ -31,7 +31,8 @@ will create that many controller slots.
 
 Slots without a script start disconnected. To keep such a slot connected as an
 idle buffer, set `controller_states[slot].idle = True` after calling
-`start_server()`.
+`start_server()`. Accessing a non-existent slot will automatically create it so
+no extra setup is required.
 
 ## Running the viewer
 

@@ -2,6 +2,7 @@ from typing import Optional, Tuple
 
 from .net_config import stick_deadzone
 from dataclasses import dataclass
+from . import net_config as net_cfg
 
 # Mapping tables for battery levels and connection type values
 BATTERY_STATES = {
@@ -126,3 +127,20 @@ class ControllerState:
         activity.  Otherwise connection is based on :meth:`is_idle`.
         """
         self.connected = self.idle or not self.is_idle(dz)
+
+
+class ControllerStateDict(dict):
+    """Mapping of controller slot numbers to :class:`ControllerState`.
+
+    Accessing a missing slot automatically creates a default
+    :class:`ControllerState` without starting a controller thread. This
+    allows ``controller_states[slot].idle = True`` to work for new slots.
+    """
+
+    def __missing__(self, key: int) -> ControllerState:
+        if not isinstance(key, int) or key < 0:
+            raise KeyError(key)
+        net_cfg.ensure_slot_count(key + 1)
+        value = ControllerState(connected=False)
+        self[key] = value
+        return value

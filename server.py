@@ -7,7 +7,7 @@ import os
 
 from libraries.net_config import *
 import libraries.net_config as net_cfg
-from libraries.masks import *
+from libraries.masks import ControllerState, ControllerStateDict
 from libraries.inputs import load_controller_loop
 from libraries import packet
 
@@ -84,7 +84,7 @@ def start_server(port: int = UDP_port,
         print("Warning: more than four controller slots is non-standard but supported.")
     net_cfg.ensure_slot_count(slot_count)
 
-    controller_states = {slot: ControllerState(connected=False) for slot in range(slot_count)}
+    controller_states = ControllerStateDict({slot: ControllerState(connected=False) for slot in range(slot_count)})
     stop_event = threading.Event()
 
     def _thread_main() -> None:
