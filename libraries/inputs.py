@@ -1,8 +1,11 @@
 """Input emulation helper utilities."""
 
 import importlib.util
+import json
+import time
 
 from .masks import button_mask_2
+from .masks import touchpad_input
 from . import net_config as net_cfg
 
 press_duration = 3
@@ -62,4 +65,77 @@ def set_slot_mac_address(slot: int, mac: bytes | str) -> None:
 
     net_cfg.ensure_slot_count(slot + 1)
     net_cfg.slot_mac_addresses[slot] = mac_bytes
+
+
+def Replay_Inputs(path: str, slot: int | str):
+    """Return a controller loop that replays captured input data.
+
+    ``path`` should point to a JSON Lines file produced by the viewer's
+    input capture feature. ``slot`` specifies which controller slot to
+    replay.  Pass ``"all"`` to replay every slot contained in the file.
+
+    The returned function matches the ``controller_loop`` signature used
+    by :func:`server.start_server`.
+    """
+
+    def _update_state(state, entry):
+        state.connected = entry.get("connected", False)
+        state.buttons1 = entry.get("buttons1", 0)
+        state.buttons2 = entry.get("buttons2", 0)
+        state.home = entry.get("home", False)
+        state.touch_button = entry.get("touch_button", False)
+        state.L_stick = tuple(entry.get("ls", (128, 128)))
+        state.R_stick = tuple(entry.get("rs", (128, 128)))
+        state.dpad_analog = tuple(entry.get("dpad", (0, 0, 0, 0)))
+        state.face_analog = tuple(entry.get("face", (0, 0, 0, 0)))
+        state.analog_R1 = entry.get("analog_r1", 0)
+        state.analog_L1 = entry.get("analog_l1", 0)
+        state.analog_R2 = entry.get("analog_r2", 0)
+        state.analog_L2 = entry.get("analog_l2", 0)
+        t1 = entry.get("touch1") or {"active": False, "id": 0, "pos": (0, 0)}
+        t2 = entry.get("touch2") or {"active": False, "id": 0, "pos": (0, 0)}
+        state.touchpad_input1 = touchpad_input(
+            bool(t1.get("active")), t1.get("id", 0), *t1.get("pos", (0, 0))
+        )
+        state.touchpad_input2 = touchpad_input(
+            bool(t2.get("active")), t2.get("id", 0), *t2.get("pos", (0, 0))
+        )
+
+    def controller_loop(stop_event, controller_states, assigned_slot):
+        try:
+            fh = open(path, "r", encoding="utf-8")
+        except OSError:
+            return
+
+        with fh:
+            prev_time = None
+            for line in fh:
+                if stop_event.is_set():
+                    break
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    entry = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+
+                entry_slot = entry.get("slot", 0)
+                if slot != "all" and entry_slot != slot:
+                    continue
+
+                if prev_time is not None:
+                    delay = entry.get("time", 0.0) - prev_time
+                    end = time.time() + max(delay, 0.0)
+                    while not stop_event.is_set() and time.time() < end:
+                        time.sleep(min(frame_delay, end - time.time()))
+                prev_time = entry.get("time", 0.0)
+
+                target_slot = entry_slot if slot == "all" else assigned_slot
+                if target_slot not in controller_states:
+                    continue
+                _update_state(controller_states[target_slot], entry)
+
+    return controller_loop
+
 
