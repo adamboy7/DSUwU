@@ -6,7 +6,8 @@ import threading
 import logging
 from tkinter import Tk, Label
 from tkinter import ttk
-from tkinter import Menu, simpledialog
+from tkinter import Menu, simpledialog, filedialog
+import json
 
 from libraries.masks import BATTERY_STATES, CONNECTION_TYPES
 
@@ -164,6 +165,7 @@ class DSUClient:
         self.states = {}
         self.last_request = 0.0
         self.server_states = None
+        self.state_callback = None
 
     def restart(self, port: int | None = None, server_ip: str | None = None):
         """Restart client communications with an optional new port or server IP."""
@@ -265,6 +267,11 @@ class DSUClient:
                     self.states[slot] = state
                     if self.server_states is not None:
                         self._copy_to_server(slot, state)
+                    if self.state_callback is not None:
+                        try:
+                            self.state_callback(slot, state)
+                        except Exception as exc:
+                            logging.error("State callback failed: %s", exc)
             except socket.timeout:
                 pass
 
@@ -311,6 +318,10 @@ class ViewerUI:
         self.labels = {}
         self.rebroadcast_stop = None
         self.rebroadcast_thread = None
+        self.capture_file = None
+        self.capture_start = None
+        self.last_logged = {}
+        self.capture_menu_index = None
         for slot in range(4):
             frame = ttk.Frame(self.notebook)
             self.notebook.add(frame, text=f"Slot {slot}")
@@ -331,6 +342,8 @@ class ViewerUI:
         self.options_menu.add_command(label="Port", command=self._change_port)
         self.options_menu.add_command(label="Remote Connection", command=self._change_remote)
         self.tools_menu.add_command(label="Rebroadcast", command=self._start_rebroadcast)
+        self.tools_menu.add_command(label="Start input capture", command=self._start_capture)
+        self.capture_menu_index = self.tools_menu.index("end")
 
     def _start_rebroadcast(self):
         port = simpledialog.askinteger(
@@ -349,6 +362,76 @@ class ViewerUI:
         self.client.server_states = states
         self.rebroadcast_stop = stop_evt
         self.rebroadcast_thread = thread
+
+    def _start_capture(self):
+        if self.capture_file is not None:
+            return
+        path = filedialog.asksaveasfilename(
+            title="Save input capture",
+            defaultextension=".jsonl",
+            filetypes=[("JSON Lines", "*.jsonl"), ("All Files", "*.*")],
+            parent=self.root,
+        )
+        if not path:
+            return
+        try:
+            self.capture_file = open(path, "w", encoding="utf-8")
+        except OSError as exc:
+            logging.error("Failed to open capture file: %s", exc)
+            self.capture_file = None
+            return
+        self.capture_start = time.time()
+        self.last_logged.clear()
+        self.tools_menu.entryconfigure(self.capture_menu_index,
+                                       label="Stop input capture",
+                                       command=self._stop_capture)
+        self.client.state_callback = self._capture_state
+
+    def _stop_capture(self):
+        if self.capture_file is None:
+            return
+        try:
+            self.capture_file.close()
+        finally:
+            self.capture_file = None
+        self.capture_start = None
+        self.client.state_callback = None
+        self.tools_menu.entryconfigure(self.capture_menu_index,
+                                       label="Start input capture",
+                                       command=self._start_capture)
+
+    def _capture_state(self, slot: int, state: dict) -> None:
+        if self.capture_file is None or self.capture_start is None:
+            return
+        relevant = {
+            "connected": state["connected"],
+            "buttons1": state["buttons1"],
+            "buttons2": state["buttons2"],
+            "home": state["home"],
+            "touch_button": state["touch_button"],
+            "ls": state["ls"],
+            "rs": state["rs"],
+            "dpad": state["dpad"],
+            "face": state["face"],
+            "analog_r1": state["analog_r1"],
+            "analog_l1": state["analog_l1"],
+            "analog_r2": state["analog_r2"],
+            "analog_l2": state["analog_l2"],
+            "touch1": state["touch1"],
+            "touch2": state["touch2"],
+        }
+        prev = self.last_logged.get(slot)
+        if prev == relevant:
+            return
+        self.last_logged[slot] = relevant
+        entry = {
+            "time": time.time() - self.capture_start,
+            "slot": slot,
+            **relevant,
+        }
+        json.dump(entry, self.capture_file)
+        self.capture_file.write("\n")
+        self.capture_file.flush()
 
     def _change_port(self):
         port = simpledialog.askinteger(

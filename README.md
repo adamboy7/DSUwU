@@ -53,3 +53,9 @@ data captured by the viewer. When prompted for the rebroadcast port (default is
 `26761`), enter the desired port and the viewer will forward all input data to
 that port so other applications can consume it.
 
+The **Start input capture** tool lets you record controller input to a file.
+Choose the save location when prompted and the viewer will log state changes as
+JSON lines. Only button masks, sticks, triggers and touch values are recorded,
+so motion data is ignored. While capturing, the menu entry changes to **Stop
+input capture** which ends the capture and reverts the menu.
+
