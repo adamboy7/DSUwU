@@ -1,8 +1,8 @@
 import time
 import pygame
 
-from libraries.inputs import frame_delay
-from libraries.masks import button_mask_1, button_mask_2
+from dsuwu.inputs import frame_delay
+from dsuwu.masks import button_mask_1, button_mask_2
 
 # Index of the pygame joystick to read input from. Increase this if you
 # have multiple controllers connected and want to use one beyond the

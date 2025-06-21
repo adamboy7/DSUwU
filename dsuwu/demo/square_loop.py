@@ -1,5 +1,5 @@
 import time
-from libraries.inputs import frame_delay, pulse_button_xor
+from dsuwu.inputs import frame_delay, pulse_button_xor
 
 def controller_loop(stop_event, controller_states, slot):
     frame = 0

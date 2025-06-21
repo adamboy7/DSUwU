@@ -21,7 +21,7 @@ python server.py [--port PORT] [--server-id HEX] [--controller1-script PATH]
 ```
 
 If no options are provided the server listens on UDP port 26760 and uses the
-example controller scripts found in `demo/` to generate input. These include
+example controller scripts found in `dsuwu/demo/` to generate input. These include
 `circle_loop.py`, `cross_loop.py`, `square_loop.py`, `triangle_loop.py`, and an
 `idle_loop.py` that keeps a slot connected without sending input. Custom scripts
 can be supplied per slot with the `--controllerN-script` arguments. A

@@ -3,7 +3,7 @@ import struct
 import json
 import logging
 
-from libraries.masks import BATTERY_STATES, CONNECTION_TYPES
+from dsuwu.masks import BATTERY_STATES, CONNECTION_TYPES
 
 __all__ = [
     "PacketParserWindow",
@@ -13,7 +13,7 @@ __all__ = [
 
 def parse_button_request(data: bytes):
     """Return slot number from a DSU input request packet."""
-    from libraries.net_config import DSU_button_request
+    from dsuwu.net_config import DSU_button_request
 
     if len(data) < 24:
         return None
@@ -25,7 +25,7 @@ def parse_button_request(data: bytes):
 
 def parse_port_info(data: bytes):
     """Decode a DSU port info response packet."""
-    from libraries.net_config import DSU_port_info
+    from dsuwu.net_config import DSU_port_info
 
     if len(data) < 32:
         return None
@@ -45,7 +45,7 @@ def parse_port_info(data: bytes):
 
 
 def packet_name(tag: bytes, msg_type: int) -> str:
-    from libraries.net_config import (
+    from dsuwu.net_config import (
         DSU_version_request,
         DSU_list_ports,
         DSU_button_request,
@@ -67,7 +67,7 @@ def packet_name(tag: bytes, msg_type: int) -> str:
 
 
 def describe_packet(packet: bytes) -> str:
-    from libraries.net_config import DSU_button_request
+    from dsuwu.net_config import DSU_button_request
 
     if len(packet) < 20:
         return "Incomplete packet"
@@ -81,7 +81,7 @@ def describe_packet(packet: bytes) -> str:
     ]
     name = packet_name(tag, msg_type)
     if name == "Input Response":
-        from viewer import parse_button_response  # avoid circular import at top
+        from dsuwu.viewer import parse_button_response  # avoid circular import at top
 
         state = parse_button_response(packet)
         if state:
