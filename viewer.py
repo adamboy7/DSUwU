@@ -10,6 +10,9 @@ from tkinter import Menu, simpledialog, filedialog
 import json
 
 from libraries.masks import BATTERY_STATES, CONNECTION_TYPES
+from tools.rebroadcast import Rebroadcaster
+from tools.debug_packet import PacketParserWindow, format_state
+from tools.input_capture import InputCapture
 
 from libraries.net_config import (
     UDP_port,
@@ -17,12 +20,14 @@ from libraries.net_config import (
     DSU_version_request,
     DSU_version_response,
     DSU_list_ports,
+    DSU_port_info,
     DSU_button_request,
     DSU_button_response,
+    DSU_motor_request,
+    motor_command,
     DSU_timeout,
 )
 import libraries.net_config as net_cfg
-from server import start_server
 
 
 def crc_packet(header: bytes, payload: bytes) -> int:
@@ -152,6 +157,8 @@ def parse_button_response(data: bytes):
         "gyro": accel_gyro[3:],
     }
 
+
+
 class DSUClient:
     def __init__(self, server_ip: str, port: int = UDP_port):
         self.server_ip = server_ip
@@ -277,35 +284,8 @@ class DSUClient:
 
 
 
-def format_state(state: dict) -> str:
-    if not state:
-        return "No data"
-    lines = [
-        f"MAC: {state['mac']}",
-        f"Connected: {state['connected']}",
-        f"Packet: {state['packet']}",
-        f"Buttons1: 0x{state['buttons1']:02X}",
-        f"Buttons2: 0x{state['buttons2']:02X}",
-        f"Home: {state['home']} Touch: {state['touch_button']}",
-        f"LS: {state['ls']} RS: {state['rs']}",
-        f"Dpad: {state['dpad']} Face: {state['face']}",
-        f"Analog L1/R1: {state['analog_l1']} {state['analog_r1']}",
-        f"Analog L2/R2: {state['analog_l2']} {state['analog_r2']}",
-        f"Touch1: A={state['touch1']['active']} ID={state['touch1']['id']}"
-        f" Pos={state['touch1']['pos']}",
-        f"Touch2: A={state['touch2']['active']} ID={state['touch2']['id']}"
-        f" Pos={state['touch2']['pos']}",
-        f"Gyro: {state['gyro']}",
-        f"Accel: {state['accel']}",
-    ]
-    lines.append("Buttons:")
-    for name, pressed in state["buttons"].items():
-        lines.append(f"  {name}: {pressed}")
-    battery_text = BATTERY_STATES.get(state["battery"], f"0x{state['battery']:02X}")
-    lines.append(f"Battery: {battery_text}")
-    conn_text = CONNECTION_TYPES.get(state["connection_type"], str(state["connection_type"]))
-    lines.append(f"Connection: {conn_text}")
-    return "\n".join(lines)
+
+
 
 
 class ViewerUI:
@@ -317,11 +297,9 @@ class ViewerUI:
         self._build_menu()
         self.notebook = ttk.Notebook(self.root)
         self.labels = {}
-        self.rebroadcast_stop = None
-        self.rebroadcast_thread = None
-        self.capture_file = None
-        self.capture_start = None
-        self.last_logged = {}
+        self.rebroadcaster = Rebroadcaster()
+        self.capture = InputCapture(self.client)
+        self.parser_win = None
         for slot in range(4):
             frame = ttk.Frame(self.notebook)
             self.notebook.add(frame, text=f"Slot {slot}")
@@ -342,6 +320,7 @@ class ViewerUI:
         self.options_menu.add_command(label="Port", command=self._change_port)
         self.options_menu.add_command(label="Remote Connection", command=self._change_remote)
         self.tools_menu.add_command(label="Rebroadcast", command=self._start_rebroadcast)
+        self.tools_menu.add_command(label="Packet Parser", command=self._open_parser)
         self.tools_menu.add_command(label="Start input capture", command=self._start_capture)
         self.capture_menu_index = self.tools_menu.index("end")
 
@@ -354,17 +333,17 @@ class ViewerUI:
         )
         if port is None:
             return
-        if self.rebroadcast_stop is not None:
-            self.rebroadcast_stop.set()
-            if self.rebroadcast_thread is not None:
-                self.rebroadcast_thread.join(timeout=0.1)
-        states, stop_evt, thread = start_server(port=port, scripts=[None] * 4)
+        states = self.rebroadcaster.start(port)
         self.client.server_states = states
-        self.rebroadcast_stop = stop_evt
-        self.rebroadcast_thread = thread
+
+    def _open_parser(self):
+        if getattr(self, "parser_win", None) is None or not self.parser_win.top.winfo_exists():
+            self.parser_win = PacketParserWindow(self.root)
+        else:
+            self.parser_win.top.lift()
 
     def _start_capture(self):
-        if self.capture_file is not None:
+        if self.capture.active:
             return
         path = filedialog.asksaveasfilename(
             title="Save input capture",
@@ -374,64 +353,19 @@ class ViewerUI:
         )
         if not path:
             return
-        try:
-            self.capture_file = open(path, "w", encoding="utf-8")
-        except OSError as exc:
-            logging.error("Failed to open capture file: %s", exc)
-            self.capture_file = None
+        if not self.capture.start_capture(path):
             return
-        self.capture_start = time.time()
-        self.last_logged.clear()
         self.tools_menu.entryconfigure(self.capture_menu_index,
                                        label="Stop input capture",
                                        command=self._stop_capture)
-        self.client.state_callback = self._capture_state
 
     def _stop_capture(self):
-        if self.capture_file is None:
+        if not self.capture.active:
             return
-        try:
-            self.capture_file.close()
-        finally:
-            self.capture_file = None
-        self.capture_start = None
-        self.client.state_callback = None
+        self.capture.stop_capture()
         self.tools_menu.entryconfigure(self.capture_menu_index,
                                        label="Start input capture",
                                        command=self._start_capture)
-
-    def _capture_state(self, slot: int, state: dict) -> None:
-        if self.capture_file is None or self.capture_start is None:
-            return
-        relevant = {
-            "connected": state["connected"],
-            "buttons1": state["buttons1"],
-            "buttons2": state["buttons2"],
-            "home": state["home"],
-            "touch_button": state["touch_button"],
-            "ls": state["ls"],
-            "rs": state["rs"],
-            "dpad": state["dpad"],
-            "face": state["face"],
-            "analog_r1": state["analog_r1"],
-            "analog_l1": state["analog_l1"],
-            "analog_r2": state["analog_r2"],
-            "analog_l2": state["analog_l2"],
-            "touch1": state["touch1"],
-            "touch2": state["touch2"],
-        }
-        prev = self.last_logged.get(slot)
-        if prev == relevant:
-            return
-        self.last_logged[slot] = relevant
-        entry = {
-            "time": time.time() - self.capture_start,
-            "slot": slot,
-            **relevant,
-        }
-        json.dump(entry, self.capture_file)
-        self.capture_file.write("\n")
-        self.capture_file.flush()
 
     def _change_port(self):
         port = simpledialog.askinteger(
@@ -463,9 +397,8 @@ class ViewerUI:
         try:
             self.root.mainloop()
         finally:
-            if self.rebroadcast_stop is not None:
-                self.rebroadcast_stop.set()
-                self.rebroadcast_thread.join(timeout=0.1)
+            self.rebroadcaster.stop()
+            self.capture.stop_capture()
 
 
 def main(server_ip: str = "127.0.0.1"):

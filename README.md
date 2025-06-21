@@ -66,3 +66,9 @@ JSON lines. Only button masks, sticks, triggers and touch values are recorded,
 so motion data is ignored. While capturing, the menu entry changes to **Stop
 input capture** which ends the capture and reverts the menu.
 
+The **Packet Parser** tool opens a window with a scrolling text box where raw
+DSU packet bytes can be pasted (for example from a Wireshark capture). After
+pressing **Parse** you can step through the packets using **Next** and
+**Prev** to inspect each message type, including decoded button states for
+input responses.
+
