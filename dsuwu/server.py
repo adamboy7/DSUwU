@@ -120,10 +120,10 @@ def start_server(port: int = UDP_port,
 
         script_dir = os.path.dirname(__file__)
         default_scripts = [
-            os.path.join(script_dir, "dsuwu", "demo", "circle_loop.py"),
-            os.path.join(script_dir, "dsuwu", "demo", "cross_loop.py"),
-            os.path.join(script_dir, "dsuwu", "demo", "square_loop.py"),
-            os.path.join(script_dir, "dsuwu", "demo", "triangle_loop.py"),
+            os.path.join(script_dir, "demo", "circle_loop.py"),
+            os.path.join(script_dir, "demo", "cross_loop.py"),
+            os.path.join(script_dir, "demo", "square_loop.py"),
+            os.path.join(script_dir, "demo", "triangle_loop.py"),
         ]
 
         while len(default_scripts) < slot_count:
