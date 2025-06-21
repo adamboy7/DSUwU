@@ -12,6 +12,7 @@ import json
 from libraries.masks import BATTERY_STATES, CONNECTION_TYPES
 from tools.rebroadcast import Rebroadcaster
 from tools.debug_packet import PacketParserWindow, format_state
+from tools.input_capture import InputCapture
 
 from libraries.net_config import (
     UDP_port,
@@ -297,9 +298,7 @@ class ViewerUI:
         self.notebook = ttk.Notebook(self.root)
         self.labels = {}
         self.rebroadcaster = Rebroadcaster()
-        self.capture_file = None
-        self.capture_start = None
-        self.last_logged = {}
+        self.capture = InputCapture(self.client)
         self.parser_win = None
         for slot in range(4):
             frame = ttk.Frame(self.notebook)
@@ -344,7 +343,7 @@ class ViewerUI:
             self.parser_win.top.lift()
 
     def _start_capture(self):
-        if self.capture_file is not None:
+        if self.capture.active:
             return
         path = filedialog.asksaveasfilename(
             title="Save input capture",
@@ -354,64 +353,19 @@ class ViewerUI:
         )
         if not path:
             return
-        try:
-            self.capture_file = open(path, "w", encoding="utf-8")
-        except OSError as exc:
-            logging.error("Failed to open capture file: %s", exc)
-            self.capture_file = None
+        if not self.capture.start_capture(path):
             return
-        self.capture_start = time.time()
-        self.last_logged.clear()
         self.tools_menu.entryconfigure(self.capture_menu_index,
                                        label="Stop input capture",
                                        command=self._stop_capture)
-        self.client.state_callback = self._capture_state
 
     def _stop_capture(self):
-        if self.capture_file is None:
+        if not self.capture.active:
             return
-        try:
-            self.capture_file.close()
-        finally:
-            self.capture_file = None
-        self.capture_start = None
-        self.client.state_callback = None
+        self.capture.stop_capture()
         self.tools_menu.entryconfigure(self.capture_menu_index,
                                        label="Start input capture",
                                        command=self._start_capture)
-
-    def _capture_state(self, slot: int, state: dict) -> None:
-        if self.capture_file is None or self.capture_start is None:
-            return
-        relevant = {
-            "connected": state["connected"],
-            "buttons1": state["buttons1"],
-            "buttons2": state["buttons2"],
-            "home": state["home"],
-            "touch_button": state["touch_button"],
-            "ls": state["ls"],
-            "rs": state["rs"],
-            "dpad": state["dpad"],
-            "face": state["face"],
-            "analog_r1": state["analog_r1"],
-            "analog_l1": state["analog_l1"],
-            "analog_r2": state["analog_r2"],
-            "analog_l2": state["analog_l2"],
-            "touch1": state["touch1"],
-            "touch2": state["touch2"],
-        }
-        prev = self.last_logged.get(slot)
-        if prev == relevant:
-            return
-        self.last_logged[slot] = relevant
-        entry = {
-            "time": time.time() - self.capture_start,
-            "slot": slot,
-            **relevant,
-        }
-        json.dump(entry, self.capture_file)
-        self.capture_file.write("\n")
-        self.capture_file.flush()
 
     def _change_port(self):
         port = simpledialog.askinteger(
@@ -444,6 +398,7 @@ class ViewerUI:
             self.root.mainloop()
         finally:
             self.rebroadcaster.stop()
+            self.capture.stop_capture()
 
 
 def main(server_ip: str = "127.0.0.1"):
