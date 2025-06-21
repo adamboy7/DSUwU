@@ -7,7 +7,7 @@ class Rebroadcaster:
 
     def start(self, port: int):
         """Launch rebroadcast server on the given UDP port."""
-        from server import start_server
+        from dsuwu.server import start_server
 
         if self.stop_event is not None:
             self.stop()

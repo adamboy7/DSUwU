@@ -1,5 +1,5 @@
 import time
-from libraries.inputs import frame_delay
+from dsuwu.inputs import frame_delay
 
 
 def controller_loop(stop_event, controller_states, slot):
