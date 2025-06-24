@@ -66,11 +66,11 @@ JSON lines. Only button masks, sticks, triggers and touch values are recorded,
 so motion data is ignored. While capturing, the menu entry changes to **Stop
 input capture** which ends the capture and reverts the menu.
 
-The **Start motion capture** tool records accelerometer and gyroscope values at
-a high polling rate. After selecting the save location, the viewer writes a
-JSON line for each poll including the timestamp, slot, motion timestamp,
-accelerometer and gyro readings. While active, the menu entry shows **Stop
-motion capture** to end the session.
+The **Start motion capture** tool records accelerometer and gyroscope values
+whenever the viewer receives a new packet. After choosing where to save, the
+viewer writes a JSON line each time the motion data changes containing the
+timestamp, slot, motion timestamp, accelerometer and gyro readings. While
+active, the menu entry shows **Stop motion capture** to end the session.
 
 The **Packet Parser** tool opens a window with a scrolling text box where raw
 DSU packet bytes can be pasted (for example from a Wireshark capture). After

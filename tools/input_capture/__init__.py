@@ -13,6 +13,7 @@ class InputCapture:
         self.file = None
         self.start = None
         self.last_logged = {}
+        self._prev_callback = None
 
     @property
     def active(self) -> bool:
@@ -30,7 +31,17 @@ class InputCapture:
             return False
         self.start = time.time()
         self.last_logged.clear()
-        self.client.state_callback = self._capture_state
+        self._prev_callback = self.client.state_callback
+
+        def wrapper(slot: int, state: dict) -> None:
+            if self._prev_callback is not None:
+                try:
+                    self._prev_callback(slot, state)
+                except Exception as exc:  # pragma: no cover - just in case
+                    logging.error("State callback failed: %s", exc)
+            self._capture_state(slot, state)
+
+        self.client.state_callback = wrapper
         return True
 
     def stop_capture(self) -> None:
@@ -42,7 +53,8 @@ class InputCapture:
         finally:
             self.file = None
         self.start = None
-        self.client.state_callback = None
+        self.client.state_callback = self._prev_callback
+        self._prev_callback = None
 
     def _capture_state(self, slot: int, state: dict) -> None:
         if self.file is None or self.start is None:

@@ -1,6 +1,5 @@
 import json
 import time
-import threading
 import logging
 
 __all__ = ["MotionCapture"]
@@ -9,21 +8,20 @@ __all__ = ["MotionCapture"]
 class MotionCapture:
     """Capture accelerometer and gyro data to a JSON lines file."""
 
-    def __init__(self, client, interval: float = 0.01):
-        """Initialize motion capture with a DSUClient and polling *interval*."""
+    def __init__(self, client):
+        """Initialize motion capture bound to *client*."""
         self.client = client
-        self.interval = interval
         self.file = None
-        self.thread = None
-        self.stop_event = None
         self.start = None
+        self.last_logged = {}
+        self._prev_callback = None
 
     @property
     def active(self) -> bool:
         return self.file is not None
 
     def start_capture(self, path: str) -> bool:
-        """Begin polling motion data and writing to *path*."""
+        """Start recording motion data to *path*."""
         if self.file is not None:
             return False
         try:
@@ -33,39 +31,49 @@ class MotionCapture:
             self.file = None
             return False
         self.start = time.time()
-        self.stop_event = threading.Event()
-        self.thread = threading.Thread(target=self._loop, daemon=True)
-        self.thread.start()
+        self.last_logged.clear()
+        self._prev_callback = self.client.state_callback
+
+        def wrapper(slot: int, state: dict) -> None:
+            if self._prev_callback is not None:
+                try:
+                    self._prev_callback(slot, state)
+                except Exception as exc:  # pragma: no cover - just in case
+                    logging.error("State callback failed: %s", exc)
+            self._capture_state(slot, state)
+
+        self.client.state_callback = wrapper
         return True
 
     def stop_capture(self) -> None:
-        """Stop capturing motion data."""
+        """Stop recording and close the capture file."""
         if self.file is None:
             return
-        if self.stop_event is not None:
-            self.stop_event.set()
-            if self.thread is not None:
-                self.thread.join()
         try:
             self.file.close()
         finally:
             self.file = None
-            self.thread = None
-            self.stop_event = None
-            self.start = None
+        self.start = None
+        self.client.state_callback = self._prev_callback
+        self._prev_callback = None
 
-    def _loop(self) -> None:
-        while not self.stop_event.is_set():
-            now = time.time()
-            for slot, state in self.client.states.items():
-                entry = {
-                    "time": now - self.start,
-                    "slot": slot,
-                    "motion_ts": state.get("motion_ts"),
-                    "accel": state.get("accel"),
-                    "gyro": state.get("gyro"),
-                }
-                json.dump(entry, self.file)
-                self.file.write("\n")
-            self.file.flush()
-            self.stop_event.wait(self.interval)
+    def _capture_state(self, slot: int, state: dict) -> None:
+        if self.file is None or self.start is None:
+            return
+        relevant = {
+            "motion_ts": state.get("motion_ts"),
+            "accel": state.get("accel"),
+            "gyro": state.get("gyro"),
+        }
+        prev = self.last_logged.get(slot)
+        if prev == relevant:
+            return
+        self.last_logged[slot] = relevant
+        entry = {
+            "time": time.time() - self.start,
+            "slot": slot,
+            **relevant,
+        }
+        json.dump(entry, self.file)
+        self.file.write("\n")
+        self.file.flush()

@@ -429,6 +429,7 @@ class ViewerUI:
         finally:
             self.rebroadcaster.stop()
             self.capture.stop_capture()
+            self.motion_capture.stop_capture()
 
 
 def main(server_ip: str = "127.0.0.1"):
