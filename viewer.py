@@ -13,6 +13,7 @@ from libraries.masks import BATTERY_STATES, CONNECTION_TYPES
 from tools.rebroadcast import Rebroadcaster
 from tools.debug_packet import PacketParserWindow, format_state
 from tools.input_capture import InputCapture
+from tools.motion_capture import MotionCapture
 
 from libraries.net_config import (
     UDP_port,
@@ -294,11 +295,13 @@ class ViewerUI:
         self.root = Tk()
         self.root.title("DSOwO - Viewer")
         self.capture_menu_index = None
+        self.motion_menu_index = None
         self._build_menu()
         self.notebook = ttk.Notebook(self.root)
         self.labels = {}
         self.rebroadcaster = Rebroadcaster()
         self.capture = InputCapture(self.client)
+        self.motion_capture = MotionCapture(self.client)
         self.parser_win = None
         for slot in range(4):
             frame = ttk.Frame(self.notebook)
@@ -323,6 +326,8 @@ class ViewerUI:
         self.tools_menu.add_command(label="Packet Parser", command=self._open_parser)
         self.tools_menu.add_command(label="Start input capture", command=self._start_capture)
         self.capture_menu_index = self.tools_menu.index("end")
+        self.tools_menu.add_command(label="Start motion capture", command=self._start_motion_capture)
+        self.motion_menu_index = self.tools_menu.index("end")
 
     def _start_rebroadcast(self):
         port = simpledialog.askinteger(
@@ -366,6 +371,31 @@ class ViewerUI:
         self.tools_menu.entryconfigure(self.capture_menu_index,
                                        label="Start input capture",
                                        command=self._start_capture)
+
+    def _start_motion_capture(self):
+        if self.motion_capture.active:
+            return
+        path = filedialog.asksaveasfilename(
+            title="Save motion capture",
+            defaultextension=".jsonl",
+            filetypes=[("JSON Lines", "*.jsonl"), ("All Files", "*.*")],
+            parent=self.root,
+        )
+        if not path:
+            return
+        if not self.motion_capture.start_capture(path):
+            return
+        self.tools_menu.entryconfigure(self.motion_menu_index,
+                                       label="Stop motion capture",
+                                       command=self._stop_motion_capture)
+
+    def _stop_motion_capture(self):
+        if not self.motion_capture.active:
+            return
+        self.motion_capture.stop_capture()
+        self.tools_menu.entryconfigure(self.motion_menu_index,
+                                       label="Start motion capture",
+                                       command=self._start_motion_capture)
 
     def _change_port(self):
         port = simpledialog.askinteger(
