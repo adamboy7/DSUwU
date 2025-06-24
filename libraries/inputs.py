@@ -3,6 +3,7 @@
 import importlib.util
 import json
 import time
+from contextlib import nullcontext
 
 from .masks import button_mask_2
 from .masks import touchpad_input
@@ -67,12 +68,14 @@ def set_slot_mac_address(slot: int, mac: bytes | str) -> None:
     net_cfg.slot_mac_addresses[slot] = mac_bytes
 
 
-def Replay_Inputs(path: str, slot: int | str):
-    """Return a controller loop that replays captured input data.
+def Replay_Inputs(path: str, slot: int | str, motion: str | None = None):
+    """Return a controller loop that replays captured input and motion data.
 
     ``path`` should point to a JSON Lines file produced by the viewer's
     input capture feature. ``slot`` specifies which controller slot to
     replay.  Pass ``"all"`` to replay every slot contained in the file.
+    ``motion`` may optionally point to a JSON Lines file recorded with the
+    motion capture tool to provide accelerometer and gyro data.
 
     The returned function matches the ``controller_loop`` signature used
     by :func:`server.start_server`.
@@ -101,24 +104,53 @@ def Replay_Inputs(path: str, slot: int | str):
             bool(t2.get("active")), t2.get("id", 0), *t2.get("pos", (0, 0))
         )
 
+    def _update_motion(state, entry):
+        state.motion_timestamp = entry.get("motion_ts", 0)
+        state.accelerometer = tuple(entry.get("accel", (0.0, 0.0, 0.0)))
+        state.gyroscope = tuple(entry.get("gyro", (0.0, 0.0, 0.0)))
+
+    def _next_entry(file_handle):
+        if file_handle is None:
+            return None
+        for line in file_handle:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                return json.loads(line)
+            except json.JSONDecodeError:
+                continue
+        return None
+
     def controller_loop(stop_event, controller_states, assigned_slot):
         try:
-            fh = open(path, "r", encoding="utf-8")
+            fh_inputs = open(path, "r", encoding="utf-8")
         except OSError:
             return
+        fh_motion = None
+        if motion is not None:
+            try:
+                fh_motion = open(motion, "r", encoding="utf-8")
+            except OSError:
+                fh_motion = None
 
-        with fh:
+        with fh_inputs, (fh_motion or nullcontext()):
+            next_input = _next_entry(fh_inputs)
+            next_motion = _next_entry(fh_motion) if fh_motion else None
             prev_time = None
-            for line in fh:
-                if stop_event.is_set():
-                    break
-                line = line.strip()
-                if not line:
-                    continue
-                try:
-                    entry = json.loads(line)
-                except json.JSONDecodeError:
-                    continue
+            while not stop_event.is_set() and (next_input or next_motion):
+                use_motion = (
+                    next_motion is not None
+                    and (next_input is None or next_motion.get("time", 0) <= next_input.get("time", 0))
+                )
+                if use_motion:
+                    entry = next_motion
+                    next_motion = _next_entry(fh_motion)
+                    update = _update_motion
+                else:
+                    entry = next_input
+                    next_input = _next_entry(fh_inputs)
+                    update = _update_state
 
                 entry_slot = entry.get("slot", 0)
                 if slot != "all" and entry_slot != slot:
@@ -134,7 +166,7 @@ def Replay_Inputs(path: str, slot: int | str):
                 target_slot = entry_slot if slot == "all" else assigned_slot
                 if target_slot not in controller_states:
                     continue
-                _update_state(controller_states[target_slot], entry)
+                update(controller_states[target_slot], entry)
 
     return controller_loop
 
