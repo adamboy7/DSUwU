@@ -2,13 +2,14 @@ import json
 import time
 import logging
 
-__all__ = ["InputCapture"]
+__all__ = ["MotionCapture"]
 
 
-class InputCapture:
-    """Capture DSU input states to a JSON lines file."""
+class MotionCapture:
+    """Capture accelerometer and gyro data to a JSON lines file."""
 
     def __init__(self, client):
+        """Initialize motion capture bound to *client*."""
         self.client = client
         self.file = None
         self.start = None
@@ -20,7 +21,7 @@ class InputCapture:
         return self.file is not None
 
     def start_capture(self, path: str) -> bool:
-        """Start logging controller input to *path*."""
+        """Start recording motion data to *path*."""
         if self.file is not None:
             return False
         try:
@@ -45,7 +46,7 @@ class InputCapture:
         return True
 
     def stop_capture(self) -> None:
-        """Stop logging and close the capture file."""
+        """Stop recording and close the capture file."""
         if self.file is None:
             return
         try:
@@ -60,21 +61,9 @@ class InputCapture:
         if self.file is None or self.start is None:
             return
         relevant = {
-            "connected": state["connected"],
-            "buttons1": state["buttons1"],
-            "buttons2": state["buttons2"],
-            "home": state["home"],
-            "touch_button": state["touch_button"],
-            "ls": state["ls"],
-            "rs": state["rs"],
-            "dpad": state["dpad"],
-            "face": state["face"],
-            "analog_r1": state["analog_r1"],
-            "analog_l1": state["analog_l1"],
-            "analog_r2": state["analog_r2"],
-            "analog_l2": state["analog_l2"],
-            "touch1": state["touch1"],
-            "touch2": state["touch2"],
+            "motion_ts": state.get("motion_ts"),
+            "accel": state.get("accel"),
+            "gyro": state.get("gyro"),
         }
         prev = self.last_logged.get(slot)
         if prev == relevant:
