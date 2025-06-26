@@ -109,7 +109,7 @@ def start_server(port: int = UDP_port,
         sock.bind((UDP_IP, port))
         sock.setblocking(False)
 
-        packet.sock = sock
+        packet.start_sender(sock, stop_event)
         packet.controller_states = controller_states
 
         if server_id_value is not None:
@@ -242,6 +242,7 @@ def start_server(port: int = UDP_port,
             stop_event.set()
             for t in controller_threads:
                 t.join()
+            packet.stop_sender()
             sock.close()
 
     thread = threading.Thread(target=_thread_main, daemon=True)
