@@ -1,6 +1,9 @@
 import struct
 import zlib
 import time
+import queue
+import threading
+import socket
 
 from .net_config import *
 from .masks import button_mask_1, button_mask_2, touchpad_input, ControllerState
@@ -9,6 +12,64 @@ from .masks import button_mask_1, button_mask_2, touchpad_input, ControllerState
 sock = None
 # Controller state mapping assigned by the server
 controller_states = None
+
+# Queue and thread for asynchronous packet sends
+send_queue: queue.Queue[tuple[bytes, tuple[str, int], str | None]] | None = None
+send_thread: threading.Thread | None = None
+_send_stop: threading.Event | None = None
+
+
+def start_sender(send_sock: socket.socket, stop_event: threading.Event) -> None:
+    """Start a background thread that flushes queued packets."""
+    global sock, send_queue, send_thread, _send_stop
+    sock = send_sock
+    send_queue = queue.Queue()
+    _send_stop = stop_event
+
+    def _worker() -> None:
+        assert send_queue is not None
+        while not _send_stop.is_set():
+            try:
+                pkt, addr, desc = send_queue.get(timeout=0.1)
+            except queue.Empty:
+                continue
+            try:
+                send_sock.sendto(pkt, addr)
+            except OSError as exc:
+                if desc:
+                    print(f"Failed to send {desc} to {addr}: {exc}")
+                else:
+                    print(f"Failed to send packet to {addr}: {exc}")
+                if active_clients.pop(addr, None) is not None:
+                    print(f"Removed client {addr} after send failure")
+            finally:
+                send_queue.task_done()
+
+    send_thread = threading.Thread(target=_worker, daemon=True)
+    send_thread.start()
+
+
+def stop_sender() -> None:
+    """Join the sender thread if running."""
+    if send_thread is not None:
+        send_thread.join()
+
+
+def queue_packet(pkt: bytes, addr: tuple[str, int], desc: str | None = None) -> None:
+    """Queue a packet for asynchronous sending."""
+    if send_queue is None:
+        try:
+            sock.sendto(pkt, addr)
+        except OSError as exc:
+            if desc:
+                print(f"Failed to send {desc} to {addr}: {exc}")
+            else:
+                print(f"Failed to send packet to {addr}: {exc}")
+            if active_clients.pop(addr, None) is not None:
+                print(f"Removed client {addr} after send failure")
+        return
+
+    send_queue.put((pkt, addr, desc))
 
 
 def crc_packet(header: bytes, payload: bytes) -> int:
@@ -44,28 +105,14 @@ def send_port_info(addr, slot):
             1,
         )
     packet = build_header(DSU_port_info, payload)
-    try:
-        sock.sendto(packet, addr)
-    except OSError as exc:
-        print(f"Failed to send port info to {addr}: {exc}")
-        if active_clients.pop(addr, None) is not None:
-            print(f"Removed client {addr} after send failure")
-    else:
-        print(f"Sent port info for slot {slot} to {addr}")
+    queue_packet(packet, addr, f"port info slot {slot}")
 
 
 def send_port_disconnect(addr, slot):
     """Send a port info packet indicating the slot is disconnected."""
     payload = b"\x00" * 12
     packet = build_header(DSU_port_info, payload)
-    try:
-        sock.sendto(packet, addr)
-    except OSError as exc:
-        print(f"Failed to send port disconnect for slot {slot} to {addr}: {exc}")
-        if active_clients.pop(addr, None) is not None:
-            print(f"Removed client {addr} after send failure")
-    else:
-        print(f"Sent port disconnect for slot {slot} to {addr}")
+    queue_packet(packet, addr, f"port disconnect slot {slot}")
 
 
 def handle_version_request(addr):
@@ -73,14 +120,7 @@ def handle_version_request(addr):
     packet = build_header(DSU_version_response, payload[4:])
     info = active_clients.setdefault(addr, {'last_seen': time.time(), 'slots': set()})
     info['last_seen'] = time.time()
-    try:
-        sock.sendto(packet, addr)
-    except OSError as exc:
-        print(f"Failed to send version response to {addr}: {exc}")
-        if active_clients.pop(addr, None) is not None:
-            print(f"Removed client {addr} after send failure")
-    else:
-        print(f"Sent version response to {addr}")
+    queue_packet(packet, addr, "version response")
 
 
 def handle_list_ports(addr, data):
@@ -125,14 +165,7 @@ def handle_motor_request(addr, data):
     payload = struct.pack('<4B6s2B', slot, 2, 2, 2, mac_address, 5, 1)
     payload += struct.pack('<B', motor_count)
     packet = build_header(DSU_motor_response, payload)
-    try:
-        sock.sendto(packet, addr)
-    except OSError as exc:
-        print(f"Failed to send motor count to {addr} slot {slot}: {exc}")
-        if active_clients.pop(addr, None) is not None:
-            print(f"Removed client {addr} after send failure")
-    else:
-        print(f"Sent motor count {motor_count} to {addr} slot {slot}")
+    queue_packet(packet, addr, f"motor count slot {slot}")
 
 
 def handle_motor_command(addr, data):
@@ -233,13 +266,7 @@ def send_input(
     payload += struct.pack('<Q', motion_ts)
     payload += struct.pack('<6f', *accelerometer, *gyroscope)
     packet = build_header(DSU_button_response, payload)
-    try:
-        sock.sendto(packet, addr)
-    except OSError as exc:
-        print(f"Failed to send input packet to {addr}: {exc}")
-        if active_clients.pop(addr, None) is not None:
-            print(f"Removed client {addr} after send failure")
-        return
+    queue_packet(packet, addr, f"input slot {slot}")
 
     prev_state = last_button_states.get(slot)
     current_state = (buttons1, buttons2)
