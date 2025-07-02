@@ -64,7 +64,6 @@ def set_slot_mac_address(slot: int, mac: bytes | str) -> None:
     else:
         raise TypeError("mac must be bytes or str")
 
-    net_cfg.ensure_slot_count(slot + 1)
     net_cfg.slot_mac_addresses[slot] = mac_bytes
 
 
@@ -80,7 +79,7 @@ def set_slot_connection_type(controller_states, slot: int, conn_type: int) -> No
     if slot < 0:
         raise ValueError("slot index cannot be negative")
 
-    net_cfg.ensure_slot_count(slot + 1)
+    net_cfg.ensure_slot(slot)
     state = controller_states[slot]
     state.connection_type = conn_type
 

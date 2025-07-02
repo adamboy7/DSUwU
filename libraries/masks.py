@@ -145,7 +145,7 @@ class ControllerStateDict(dict):
     def __missing__(self, key: int) -> ControllerState:
         if not isinstance(key, int) or key < 0:
             raise KeyError(key)
-        net_cfg.ensure_slot_count(key + 1)
+        net_cfg.ensure_slot(key)
         value = ControllerState(connected=False)
         self[key] = value
         return value
