@@ -91,18 +91,17 @@ def build_header(msg_type: int, payload: bytes) -> bytes:
 def send_port_info(addr, slot):
     state = controller_states[slot]
     if state.connection_type == -1:
-        payload = b"\x00" * 12
+        payload = b"\x00" * 11
     else:
         mac_address = slot_mac_addresses[slot]
         payload = struct.pack(
-            '<4B6s2B',
+            '<4B6sB',
             slot,
             2,  # slot state - connected
             2,  # device model - full gyro
             state.connection_type,
             mac_address,
             state.battery,
-            1,
         )
     packet = build_header(DSU_port_info, payload)
     queue_packet(packet, addr, f"port info slot {slot}")
@@ -110,7 +109,7 @@ def send_port_info(addr, slot):
 
 def send_port_disconnect(addr, slot):
     """Send a port info packet indicating the slot is disconnected."""
-    payload = b"\x00" * 12
+    payload = b"\x00" * 11
     packet = build_header(DSU_port_info, payload)
     queue_packet(packet, addr, f"port disconnect slot {slot}")
 

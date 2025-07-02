@@ -32,15 +32,16 @@ def parse_port_info(data: bytes):
     msg_type, = struct.unpack_from("<I", data, 16)
     if msg_type != DSU_port_info:
         return None
-    slot, state, model, connection_type, mac, battery, connected = struct.unpack_from(
-        "<4B6s2B", data, 20
+    slot, state, model, connection_type, mac, battery = struct.unpack_from(
+        "<4B6sB", data, 20
     )
     return {
         "slot": slot,
         "mac": ":".join(f"{b:02X}" for b in mac),
         "connection_type": connection_type,
         "battery": battery,
-        "connected": bool(connected),
+        "state": state,
+        "model": model,
     }
 
 
@@ -97,7 +98,7 @@ def describe_packet(packet: bytes) -> str:
             lines.append(f"Slot: {info['slot']} MAC: {info['mac']}")
             battery = BATTERY_STATES.get(info["battery"], f"0x{info['battery']:02X}")
             conn = CONNECTION_TYPES.get(info["connection_type"], str(info["connection_type"]))
-            lines.append(f"Connected: {info['connected']} Battery: {battery}")
+            lines.append(f"Battery: {battery}")
             lines.append(f"Connection: {conn}")
     return "\n".join(lines)
 
