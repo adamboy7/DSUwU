@@ -68,6 +68,23 @@ def set_slot_mac_address(slot: int, mac: bytes | str) -> None:
     net_cfg.slot_mac_addresses[slot] = mac_bytes
 
 
+def set_slot_connection_type(controller_states, slot: int, conn_type: int) -> None:
+    """Set the connection type for ``slot`` in ``controller_states``.
+
+    ``conn_type`` should be ``-1`` (disconnect), ``0`` (N/A), ``1`` (USB) or
+    ``2`` (Bluetooth).
+    """
+
+    if conn_type not in (-1, 0, 1, 2):
+        raise ValueError("invalid connection type")
+    if slot < 0:
+        raise ValueError("slot index cannot be negative")
+
+    net_cfg.ensure_slot_count(slot + 1)
+    state = controller_states[slot]
+    state.connection_type = conn_type
+
+
 def Replay_Inputs(path: str, slot: int | str, motion: str | None = None):
     """Return a controller loop that replays captured input and motion data.
 

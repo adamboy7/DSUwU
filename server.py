@@ -142,6 +142,7 @@ def start_server(port: int = UDP_port,
         known_slots.clear()
         for slot in list(controller_states):
             controller_states[slot].connected = False
+        prev_connection_types = {slot: controller_states[slot].connection_type for slot in controller_states}
 
         controller_threads: list[threading.Thread] = []
         for slot in list(controller_states):
@@ -192,41 +193,57 @@ def start_server(port: int = UDP_port,
 
                 for s, state in list(controller_states.items()):
                     prev_connected = state.connected
+                    prev_type = prev_connection_types.get(s, state.connection_type)
                     state.update_connection(stick_deadzone)
-                    if state.connected != prev_connected:
-                        if state.connected:
+
+                    if state.connection_type != prev_type:
+                        prev_connection_types[s] = state.connection_type
+                        if state.connection_type == -1:
+                            state.connected = False
+                            known_slots.discard(s)
+                            for client in list(active_clients):
+                                packet.send_port_disconnect(client, s)
+                        else:
                             known_slots.add(s)
                             for client in list(active_clients):
                                 packet.send_port_info(client, s)
-                        else:
-                            for client in list(active_clients):
-                                packet.send_port_disconnect(client, s)
-                    for addr in list(active_clients):
-                        packet.send_input(
-                            addr,
-                            s,
-                            connected=state.connected,
-                            packet_num=state.packet_num,
-                            buttons1=state.buttons1,
-                            buttons2=state.buttons2,
-                            home=state.home,
-                            touch_button=state.touch_button,
-                            L_stick=state.L_stick,
-                            R_stick=state.R_stick,
-                            dpad_analog=state.dpad_analog,
-                            face_analog=state.face_analog,
-                            analog_R1=state.analog_R1,
-                            analog_L1=state.analog_L1,
-                            analog_R2=state.analog_R2,
-                            analog_L2=state.analog_L2,
-                            touchpad_input1=state.touchpad_input1,
-                            touchpad_input2=state.touchpad_input2,
-                            motion_timestamp=state.motion_timestamp,
-                            accelerometer=state.accelerometer,
-                            gyroscope=state.gyroscope,
-                            connection_type=state.connection_type,
-                            battery=state.battery,
-                        )
+
+                    if (
+                        state.connection_type != -1
+                        and not prev_connected
+                        and state.connected
+                        and s not in known_slots
+                    ):
+                        known_slots.add(s)
+                        for client in list(active_clients):
+                            packet.send_port_info(client, s)
+                    if state.connection_type != -1:
+                        for addr in list(active_clients):
+                            packet.send_input(
+                                addr,
+                                s,
+                                connected=state.connected,
+                                packet_num=state.packet_num,
+                                buttons1=state.buttons1,
+                                buttons2=state.buttons2,
+                                home=state.home,
+                                touch_button=state.touch_button,
+                                L_stick=state.L_stick,
+                                R_stick=state.R_stick,
+                                dpad_analog=state.dpad_analog,
+                                face_analog=state.face_analog,
+                                analog_R1=state.analog_R1,
+                                analog_L1=state.analog_L1,
+                                analog_R2=state.analog_R2,
+                                analog_L2=state.analog_L2,
+                                touchpad_input1=state.touchpad_input1,
+                                touchpad_input2=state.touchpad_input2,
+                                motion_timestamp=state.motion_timestamp,
+                                accelerometer=state.accelerometer,
+                                gyroscope=state.gyroscope,
+                                connection_type=state.connection_type,
+                                battery=state.battery,
+                            )
                 for state in list(controller_states.values()):
                     state.packet_num = (state.packet_num + 1) & 0xFFFFFFFF
                     motors = list(state.motors)

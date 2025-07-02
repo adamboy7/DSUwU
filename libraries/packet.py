@@ -89,11 +89,11 @@ def build_header(msg_type: int, payload: bytes) -> bytes:
 
 
 def send_port_info(addr, slot):
-    mac_address = slot_mac_addresses[slot]
     state = controller_states[slot]
-    if not state.connected:
+    if state.connection_type == -1:
         payload = b"\x00" * 12
     else:
+        mac_address = slot_mac_addresses[slot]
         payload = struct.pack(
             '<4B6s2B',
             slot,
