@@ -159,17 +159,17 @@ def handle_motor_request(addr, data):
     info = active_clients.setdefault(addr, {'last_seen': time.time(), 'slots': set()})
     info['last_seen'] = time.time()
     info['slots'].add(slot)
+    state = controller_states[slot]
     mac_address = slot_mac_addresses[slot]
-    motor_count = len(controller_states[slot].motors)
+    motor_count = len(state.motors)
     payload = struct.pack(
-        '<4B6s2B',
+        '<4B6sB',
         slot,
         2,  # slot state - connected
         2,  # device model - full gyro
-        2,  # connection type - assume USB
+        state.connection_type,
         mac_address,
-        5,
-        1,
+        state.battery,
     )
     payload += struct.pack('<B', motor_count)
     packet = build_header(DSU_motor_response, payload)
