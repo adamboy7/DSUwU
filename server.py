@@ -248,7 +248,7 @@ def start_server(port: int = UDP_port,
                     state.packet_num = (state.packet_num + 1) & 0xFFFFFFFF
                     motors = list(state.motors)
                     timestamps = list(state.motor_timestamps)
-                    for i in range(len(motors)):
+                    for i in range(state.motor_count):
                         if now - timestamps[i] > DSU_timeout and motors[i] != 0:
                             motors[i] = 0
                     state.motors = tuple(motors)

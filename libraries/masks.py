@@ -1,7 +1,7 @@
 from typing import Optional, Tuple
 
 from .net_config import stick_deadzone
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from . import net_config as net_cfg
 
 # Mapping tables for battery levels and connection type values
@@ -93,9 +93,14 @@ class ControllerState:
     # even if no inputs are active so it can be used as a buffer.
     idle: bool = False
 
-    # Rumble motor intensities and last update timestamps
-    motors: Tuple[int, int] = (0, 0)
-    motor_timestamps: Tuple[float, float] = (0.0, 0.0)
+    # Number of rumble motors and their intensities
+    motor_count: int = net_cfg.motor_count
+    motors: Tuple[int, ...] = field(
+        default_factory=lambda: (0,) * net_cfg.motor_count
+    )
+    motor_timestamps: Tuple[float, ...] = field(
+        default_factory=lambda: (0.0,) * net_cfg.motor_count
+    )
 
     def is_idle(self, dz: int = stick_deadzone) -> bool:
         """Return ``True`` if no buttons, sticks, triggers or touches are active.

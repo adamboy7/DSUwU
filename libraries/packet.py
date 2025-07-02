@@ -159,17 +159,17 @@ def handle_motor_request(addr, data):
     info = active_clients.setdefault(addr, {'last_seen': time.time(), 'slots': set()})
     info['last_seen'] = time.time()
     info['slots'].add(slot)
+    state = controller_states[slot]
     mac_address = slot_mac_addresses[slot]
-    motor_count = len(controller_states[slot].motors)
+    motor_count = state.motor_count
     payload = struct.pack(
-        '<4B6s2B',
+        '<4B6sB',
         slot,
         2,  # slot state - connected
         2,  # device model - full gyro
-        2,  # connection type - assume USB
+        state.connection_type,
         mac_address,
-        5,
-        1,
+        state.battery,
     )
     payload += struct.pack('<B', motor_count)
     packet = build_header(DSU_motor_response, payload)
@@ -187,7 +187,7 @@ def handle_motor_command(addr, data):
     motor_id = data[28]
     intensity = data[29]
     state = controller_states.get(slot)
-    if state is None or motor_id >= len(state.motors):
+    if state is None or motor_id >= state.motor_count:
         return
     motors = list(state.motors)
     timestamps = list(state.motor_timestamps)
