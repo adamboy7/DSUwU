@@ -97,9 +97,9 @@ def send_port_info(addr, slot):
         payload = struct.pack(
             '<4B6s2B',
             slot,
-            2,
+            2,  # slot state - connected
+            2,  # device model - full gyro
             state.connection_type,
-            2,
             mac_address,
             state.battery,
             1,
@@ -162,7 +162,16 @@ def handle_motor_request(addr, data):
     info['slots'].add(slot)
     mac_address = slot_mac_addresses[slot]
     motor_count = len(controller_states[slot].motors)
-    payload = struct.pack('<4B6s2B', slot, 2, 2, 2, mac_address, 5, 1)
+    payload = struct.pack(
+        '<4B6s2B',
+        slot,
+        2,  # slot state - connected
+        2,  # device model - full gyro
+        2,  # connection type - assume USB
+        mac_address,
+        5,
+        1,
+    )
     payload += struct.pack('<B', motor_count)
     packet = build_header(DSU_motor_response, payload)
     queue_packet(packet, addr, f"motor count slot {slot}")
@@ -238,9 +247,9 @@ def send_input(
     payload = struct.pack(
         '<4B6s2B',
         slot,
-        2,
+        2,  # slot state - connected
+        2,  # device model - full gyro
         connection_type,
-        2,
         mac_address,
         battery,
         int(connected),
