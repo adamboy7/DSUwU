@@ -85,7 +85,9 @@ def parse_button_response(data: bytes):
     if len(payload) < hdr_size + 4:
         return None
 
-    slot, model, connection_type, _, mac, battery, connected = struct.unpack_from(fmt_hdr, payload, 0)
+    slot, state, model, connection_type, mac, battery, connected = struct.unpack_from(
+        fmt_hdr, payload, 0
+    )
     packet_num, = struct.unpack_from("<I", payload, hdr_size)
     offset = hdr_size + 4
 

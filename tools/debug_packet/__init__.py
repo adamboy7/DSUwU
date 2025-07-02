@@ -32,7 +32,7 @@ def parse_port_info(data: bytes):
     msg_type, = struct.unpack_from("<I", data, 16)
     if msg_type != DSU_port_info:
         return None
-    slot, model, connection_type, _, mac, battery, connected = struct.unpack_from(
+    slot, state, model, connection_type, mac, battery, connected = struct.unpack_from(
         "<4B6s2B", data, 20
     )
     return {
