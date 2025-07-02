@@ -7,6 +7,9 @@ DSU_timeout = 5.0
 # Tolerance for analog stick drift when detecting connection status
 stick_deadzone = 3
 
+# Number of rumble motors supported per controller
+motor_count = 2
+
 # Server state tracking
 server_id = random.randint(0, 0xFFFFFFFF)
 # {addr: {'last_seen': float, 'slots': set()}}
