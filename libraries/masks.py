@@ -89,9 +89,6 @@ class ControllerState:
     connection_type: int = 2
     battery: int = 5
 
-    # Mark slot as idle. When ``True`` the server keeps the slot connected
-    # even if no inputs are active so it can be used as a buffer.
-    idle: bool = False
 
     # Number of rumble motors and their intensities
     motor_count: int = net_cfg.motor_count
@@ -126,20 +123,17 @@ class ControllerState:
         return all([no_buttons, no_misc, sticks_centered, dpads_zero, triggers_zero, touches_inactive])
 
     def update_connection(self, dz: int = stick_deadzone) -> None:
-        """Synchronize ``connected`` with current input state using ``dz`` as the stick deadzone.
+        """Synchronize ``connected`` with current input state using ``dz`` as the
+        stick deadzone."""
 
-        When :attr:`idle` is ``True`` the slot remains connected regardless of
-        activity.  Otherwise connection is based on :meth:`is_idle`.
-        """
-        self.connected = self.idle or not self.is_idle(dz)
+        self.connected = not self.is_idle(dz)
 
 
 class ControllerStateDict(dict):
     """Mapping of controller slot numbers to :class:`ControllerState`.
 
     Accessing a missing slot automatically creates a default
-    :class:`ControllerState` without starting a controller thread. This
-    allows ``controller_states[slot].idle = True`` to work for new slots.
+    :class:`ControllerState` without starting a controller thread.
     """
 
     def __missing__(self, key: int) -> ControllerState:
