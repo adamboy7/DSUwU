@@ -1,7 +1,5 @@
 from tkinter import Toplevel, Label, scrolledtext, ttk
 import struct
-import json
-import logging
 
 from libraries.masks import BATTERY_STATES, CONNECTION_TYPES
 
@@ -68,7 +66,6 @@ def packet_name(tag: bytes, msg_type: int) -> str:
 
 
 def describe_packet(packet: bytes) -> str:
-    from libraries.net_config import DSU_button_request
 
     if len(packet) < 20:
         return "Incomplete packet"

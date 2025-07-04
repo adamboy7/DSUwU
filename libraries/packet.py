@@ -5,8 +5,8 @@ import queue
 import threading
 import socket
 
-from .net_config import *
-from .masks import button_mask_1, button_mask_2, touchpad_input, ControllerState
+from . import net_config as net_cfg
+from .masks import button_mask_1, button_mask_2, touchpad_input
 
 # Socket used for sending packets. The server assigns this when initialized.
 sock = None
@@ -40,7 +40,7 @@ def start_sender(send_sock: socket.socket, stop_event: threading.Event) -> None:
                     print(f"Failed to send {desc} to {addr}: {exc}")
                 else:
                     print(f"Failed to send packet to {addr}: {exc}")
-                if active_clients.pop(addr, None) is not None:
+                if net_cfg.active_clients.pop(addr, None) is not None:
                     print(f"Removed client {addr} after send failure")
             finally:
                 send_queue.task_done()
@@ -65,7 +65,7 @@ def queue_packet(pkt: bytes, addr: tuple[str, int], desc: str | None = None) -> 
                 print(f"Failed to send {desc} to {addr}: {exc}")
             else:
                 print(f"Failed to send packet to {addr}: {exc}")
-            if active_clients.pop(addr, None) is not None:
+            if net_cfg.active_clients.pop(addr, None) is not None:
                 print(f"Removed client {addr} after send failure")
         return
 
@@ -82,9 +82,9 @@ def build_header(msg_type: int, payload: bytes) -> bytes:
     """Build a DSU packet header for ``msg_type`` and ``payload``."""
     msg = struct.pack('<I', msg_type) + payload
     length = len(msg)
-    header = struct.pack('<4sHHII', b'DSUS', PROTOCOL_VERSION, length, 0, server_id)
+    header = struct.pack('<4sHHII', b'DSUS', net_cfg.PROTOCOL_VERSION, length, 0, net_cfg.server_id)
     crc = crc_packet(header, msg)
-    header = struct.pack('<4sHHII', b'DSUS', PROTOCOL_VERSION, length, crc, server_id)
+    header = struct.pack('<4sHHII', b'DSUS', net_cfg.PROTOCOL_VERSION, length, crc, net_cfg.server_id)
     return header + msg
 
 
@@ -93,7 +93,7 @@ def send_port_info(addr, slot):
     if state.connection_type == -1:
         payload = b"\x00" * 11
     else:
-        mac_address = slot_mac_addresses[slot]
+        mac_address = net_cfg.slot_mac_addresses[slot]
         payload = struct.pack(
             '<4B6sB',
             slot,
@@ -103,21 +103,21 @@ def send_port_info(addr, slot):
             mac_address,
             state.battery,
         )
-    packet = build_header(DSU_port_info, payload)
+    packet = build_header(net_cfg.DSU_port_info, payload)
     queue_packet(packet, addr, f"port info slot {slot}")
 
 
 def send_port_disconnect(addr, slot):
     """Send a port info packet indicating the slot is disconnected."""
     payload = b"\x00" * 11
-    packet = build_header(DSU_port_info, payload)
+    packet = build_header(net_cfg.DSU_port_info, payload)
     queue_packet(packet, addr, f"port disconnect slot {slot}")
 
 
 def handle_version_request(addr):
-    payload = struct.pack('<I H', DSU_version_response, PROTOCOL_VERSION)
-    packet = build_header(DSU_version_response, payload[4:])
-    info = active_clients.setdefault(addr, {'last_seen': time.time(), 'slots': set()})
+    payload = struct.pack('<I H', net_cfg.DSU_version_response, net_cfg.PROTOCOL_VERSION)
+    packet = build_header(net_cfg.DSU_version_response, payload[4:])
+    info = net_cfg.active_clients.setdefault(addr, {'last_seen': time.time(), 'slots': set()})
     info['last_seen'] = time.time()
     queue_packet(packet, addr, "version response")
 
@@ -126,12 +126,12 @@ def handle_list_ports(addr, data):
     """Respond to a list ports request."""
     if len(data) < 24:
         return
-    info = active_clients.setdefault(addr, {'last_seen': time.time(), 'slots': set()})
+    info = net_cfg.active_clients.setdefault(addr, {'last_seen': time.time(), 'slots': set()})
     info['last_seen'] = time.time()
     count, = struct.unpack_from('<I', data, 20)
     slots = data[24:24 + count]
     for slot in slots:
-        if slot in known_slots:
+        if slot in net_cfg.known_slots:
             send_port_info(addr, slot)
         else:
             send_port_disconnect(addr, slot)
@@ -141,14 +141,14 @@ def handle_pad_data_request(addr, data):
     if len(data) < 28:
         return
     slot = data[20]
-    info = active_clients.setdefault(addr, {'last_seen': time.time(), 'slots': set()})
+    info = net_cfg.active_clients.setdefault(addr, {'last_seen': time.time(), 'slots': set()})
     info['last_seen'] = time.time()
     info['slots'].add(slot)
     if controller_states[slot].connected:
-        known_slots.add(slot)
-    if slot not in logged_pad_requests:
+        net_cfg.known_slots.add(slot)
+    if slot not in net_cfg.logged_pad_requests:
         print(f"Registered input request from {addr} for slot {slot}")
-        logged_pad_requests.add(slot)
+        net_cfg.logged_pad_requests.add(slot)
 
 
 def handle_motor_request(addr, data):
@@ -156,11 +156,11 @@ def handle_motor_request(addr, data):
     if len(data) < 28:
         return
     slot = data[20]
-    info = active_clients.setdefault(addr, {'last_seen': time.time(), 'slots': set()})
+    info = net_cfg.active_clients.setdefault(addr, {'last_seen': time.time(), 'slots': set()})
     info['last_seen'] = time.time()
     info['slots'].add(slot)
     state = controller_states[slot]
-    mac_address = slot_mac_addresses[slot]
+    mac_address = net_cfg.slot_mac_addresses[slot]
     motor_count = state.motor_count
     payload = struct.pack(
         '<4B6sB',
@@ -172,7 +172,7 @@ def handle_motor_request(addr, data):
         state.battery,
     )
     payload += struct.pack('<B', motor_count)
-    packet = build_header(DSU_motor_response, payload)
+    packet = build_header(net_cfg.DSU_motor_response, payload)
     queue_packet(packet, addr, f"motor count slot {slot}")
 
 
@@ -181,7 +181,7 @@ def handle_motor_command(addr, data):
     if len(data) < 30:
         return
     slot = data[20]
-    info = active_clients.setdefault(addr, {'last_seen': time.time(), 'slots': set()})
+    info = net_cfg.active_clients.setdefault(addr, {'last_seen': time.time(), 'slots': set()})
     info['last_seen'] = time.time()
     info['slots'].add(slot)
     motor_id = data[28]
@@ -224,14 +224,14 @@ def send_input(
     connection_type=2,
     battery=5,
 ):
-    if slot not in known_slots:
+    if slot not in net_cfg.known_slots:
         if not connected:
             return
-        known_slots.add(slot)
-        for client in list(active_clients):
+        net_cfg.known_slots.add(slot)
+        for client in list(net_cfg.active_clients):
             send_port_info(client, slot)
 
-    info = active_clients.get(addr)
+    info = net_cfg.active_clients.get(addr)
     if info is None:
         return
     info['slots'].add(slot)
@@ -242,7 +242,7 @@ def send_input(
     touch1 = touchpad_input1 or touchpad_input()
     touch2 = touchpad_input2 or touchpad_input()
 
-    mac_address = slot_mac_addresses[slot]
+    mac_address = net_cfg.slot_mac_addresses[slot]
     payload = struct.pack(
         '<4B6s2B',
         slot,
@@ -273,15 +273,15 @@ def send_input(
     payload += struct.pack('<2B2H', *touch2)
     payload += struct.pack('<Q', motion_ts)
     payload += struct.pack('<6f', *accelerometer, *gyroscope)
-    packet = build_header(DSU_button_response, payload)
+    packet = build_header(net_cfg.DSU_button_response, payload)
     queue_packet(packet, addr, f"input slot {slot}")
 
-    prev_state = last_button_states.get(slot)
+    prev_state = net_cfg.last_button_states.get(slot)
     current_state = (buttons1, buttons2)
     if prev_state != current_state:
         print(
             f"Sent input to {addr} slot {slot}: "
             f"buttons1=0x{buttons1:02X} buttons2=0x{buttons2:02X}"
         )
-        last_button_states[slot] = current_state
+        net_cfg.last_button_states[slot] = current_state
 
