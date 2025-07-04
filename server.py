@@ -120,11 +120,9 @@ def start_server(port: int = net_cfg.UDP_port,
             converted.append(s)
         scripts = converted
     slot_count = len(scripts) if scripts is not None else 4
-    if slot_count > 4:
-        print("Warning: more than four controller slots is non-standard but supported.")
     net_cfg.ensure_slot_count(slot_count)
 
-    controller_states = ControllerStateDict({slot: ControllerState(connected=False) for slot in range(slot_count)})
+    controller_states = ControllerStateDict({slot: ControllerState(connected=False) for slot in range(1, slot_count + 1)})
     stop_event = threading.Event()
 
     def _thread_main() -> None:
@@ -158,13 +156,13 @@ def start_server(port: int = net_cfg.UDP_port,
             use_scripts = default_scripts[:slot_count]
         else:
             use_scripts = []
-            for i in range(slot_count):
-                if i < len(scripts):
-                    use_scripts.append(scripts[i])
+            for i in range(1, slot_count + 1):
+                if i <= len(scripts):
+                    use_scripts.append(scripts[i - 1])
                 else:
-                    use_scripts.append(default_scripts[i])
+                    use_scripts.append(default_scripts[i - 1])
 
-        idle_slots = {i for i, sp in enumerate(use_scripts) if sp is IDLE}
+        idle_slots = {i for i, sp in enumerate(use_scripts, start=1) if sp is IDLE}
 
         net_cfg.known_slots.clear()
         net_cfg.known_slots.update(idle_slots)
@@ -174,7 +172,7 @@ def start_server(port: int = net_cfg.UDP_port,
 
         controller_threads: list[threading.Thread] = []
         for slot in list(controller_states):
-            script_path = use_scripts[slot]
+            script_path = use_scripts[slot - 1]
             if script_path is None or script_path is IDLE:
                 continue
             loop_func = load_controller_loop(script_path)

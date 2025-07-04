@@ -89,8 +89,8 @@ def build_header(msg_type: int, payload: bytes) -> bytes:
 
 
 def send_port_info(addr, slot):
-    if slot >= net_cfg._MAC_LIMIT:
-        print("Warning: slots above 256 cannot be reported to the client")
+    if slot >= net_cfg.soft_slot_limit:
+        print("Warning: slots above 255 cannot be reported to the client")
         return
     state = controller_states[slot]
     if state.connection_type == -1:
@@ -112,8 +112,8 @@ def send_port_info(addr, slot):
 
 def send_port_disconnect(addr, slot):
     """Send a port info packet indicating the slot is disconnected."""
-    if slot >= net_cfg._MAC_LIMIT:
-        print("Warning: slots above 256 cannot be reported to the client")
+    if slot >= net_cfg.soft_slot_limit:
+        print("Warning: slots above 255 cannot be reported to the client")
         return
     payload = b"\x00" * 11
     packet = build_header(net_cfg.DSU_port_info, payload)
@@ -230,8 +230,8 @@ def send_input(
     connection_type=2,
     battery=5,
 ):
-    if slot >= net_cfg._MAC_LIMIT:
-        print("Warning: slots above 256 cannot be reported to the client")
+    if slot >= net_cfg.soft_slot_limit:
+        print("Warning: slots above 255 cannot be reported to the client")
         return
     if slot not in net_cfg.known_slots:
         if not connected:
