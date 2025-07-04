@@ -65,7 +65,11 @@ slot_mac_addresses = SlotMacDict({
     3: slot4_mac_address,
 })
 
-# Number of unique addresses available (48 bits)
+# Number of unique addresses available (48 bits). In practice we can never
+# reach this many slots since the DSU protocol encodes the slot index as an
+# unsigned 8 bit value. More than 256 controllers would break the protocol, so
+# the warning in ``_generate_mac`` is effectively impossible to hit with a
+# compliant client.
 _MAC_LIMIT = 1 << 48
 _mac_wrap_warned = False
 
