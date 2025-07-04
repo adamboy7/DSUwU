@@ -26,7 +26,8 @@ input using the `pygame` library, if for some reason you don't want to use DS4Wi
 
 Slots beyond 4 are non‑standard but can be enabled by providing `--controller5-script`,
 `--controller6-script`, etc. Passing `None` as the script path (any case) initializes a slot without running
-a controller loop (For if you for some reason want to pass inputs or information to other threads, for example). Scripts can read and write to other slots (at a small risk of input race conditions), accessing a non-existent slot will automatically create it.
+a controller loop. Using `idle` instead (any case) marks the slot as connected
+with a generated MAC address but runs no script. Scripts can read and write to other slots (at a small risk of input race conditions), accessing a non-existent slot will automatically create it.
 
 ## Running the viewer
 

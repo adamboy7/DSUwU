@@ -10,6 +10,10 @@ from libraries.masks import ControllerState, ControllerStateDict
 from libraries.inputs import load_controller_loop
 from libraries import packet
 
+# Sentinel used when a controller slot should remain idle but be treated as
+# connected by the server.
+IDLE = object()
+
 
 def parse_server_id(value):
     """Parse a hex server ID ensuring it fits in 32 bits."""
@@ -44,11 +48,15 @@ def parse_arguments():
     script_map = {
         i: getattr(args, f"controller{i}_script") for i in range(1, 5)
     }
-    # Convert literal "None" strings to actual ``None`` so slots can be
-    # initialized without a controller thread.
+    # Convert special strings so slots can be initialized without a controller
+    # thread or marked as always connected.
     for slot, path in list(script_map.items()):
-        if isinstance(path, str) and path.lower() == "none":
-            script_map[slot] = None
+        if isinstance(path, str):
+            lowered = path.lower()
+            if lowered == "none":
+                script_map[slot] = None
+            elif lowered == "idle":
+                script_map[slot] = IDLE
     i = 0
     while i < len(unknown):
         opt = unknown[i]
@@ -60,8 +68,12 @@ def parse_arguments():
                 if i + 1 < len(unknown) and not unknown[i + 1].startswith("--"):
                     path = unknown[i + 1]
                     i += 1
-                if isinstance(path, str) and path.lower() == "none":
-                    path = None
+                if isinstance(path, str):
+                    lowered = path.lower()
+                    if lowered == "none":
+                        path = None
+                    elif lowered == "idle":
+                        path = IDLE
                 script_map[slot] = path
             else:
                 parser.error(f"Invalid option {opt}")
@@ -69,10 +81,14 @@ def parse_arguments():
             parser.error(f"Unrecognized argument {opt}")
         i += 1
 
-    # Normalize any "None" strings that may have come from dynamic options
+    # Normalize any special strings that may have come from dynamic options
     for slot, path in list(script_map.items()):
-        if isinstance(path, str) and path.lower() == "none":
-            script_map[slot] = None
+        if isinstance(path, str):
+            lowered = path.lower()
+            if lowered == "none":
+                script_map[slot] = None
+            elif lowered == "idle":
+                script_map[slot] = IDLE
 
     max_slot = max(script_map)
     scripts = [script_map.get(i) for i in range(1, max_slot + 1)]
@@ -91,8 +107,18 @@ def start_server(port: int = net_cfg.UDP_port,
     """
 
     if scripts is not None:
-        scripts = [None if isinstance(s, str) and s.lower() == "none" else s
-                   for s in scripts]
+        converted = []
+        for s in scripts:
+            if isinstance(s, str):
+                lowered = s.lower()
+                if lowered == "none":
+                    converted.append(None)
+                    continue
+                if lowered == "idle":
+                    converted.append(IDLE)
+                    continue
+            converted.append(s)
+        scripts = converted
     slot_count = len(scripts) if scripts is not None else 4
     if slot_count > 4:
         print("Warning: more than four controller slots is non-standard but supported.")
@@ -138,15 +164,18 @@ def start_server(port: int = net_cfg.UDP_port,
                 else:
                     use_scripts.append(default_scripts[i])
 
+        idle_slots = {i for i, sp in enumerate(use_scripts) if sp is IDLE}
+
         net_cfg.known_slots.clear()
+        net_cfg.known_slots.update(idle_slots)
         for slot in list(controller_states):
-            controller_states[slot].connected = False
+            controller_states[slot].connected = slot in idle_slots
         prev_connection_types = {slot: controller_states[slot].connection_type for slot in controller_states}
 
         controller_threads: list[threading.Thread] = []
         for slot in list(controller_states):
             script_path = use_scripts[slot]
-            if script_path is None:
+            if script_path is None or script_path is IDLE:
                 continue
             loop_func = load_controller_loop(script_path)
             t = threading.Thread(
@@ -193,7 +222,10 @@ def start_server(port: int = net_cfg.UDP_port,
                 for s, state in list(controller_states.items()):
                     prev_connected = state.connected
                     prev_type = prev_connection_types.get(s, state.connection_type)
-                    state.update_connection(net_cfg.stick_deadzone)
+                    if s in idle_slots:
+                        state.connected = True
+                    else:
+                        state.update_connection(net_cfg.stick_deadzone)
 
                     if state.connection_type != prev_type:
                         prev_connection_types[s] = state.connection_type
