@@ -1,4 +1,3 @@
-import zlib
 import struct
 import socket
 import time
@@ -24,11 +23,7 @@ from libraries.net_config import (
     DSU_port_info,
 )
 import libraries.net_config as net_cfg
-
-
-def crc_packet(header: bytes, payload: bytes) -> int:
-    data = header[:8] + b"\x00\x00\x00\x00" + header[12:] + payload
-    return zlib.crc32(data) & 0xFFFFFFFF
+from libraries.packet import crc_packet
 
 def build_client_packet(msg_type: int, payload: bytes) -> bytes:
     msg = struct.pack("<I", msg_type) + payload
