@@ -8,6 +8,12 @@ import socket
 from . import net_config as net_cfg
 from .masks import button_mask_1, button_mask_2, touchpad_input
 
+
+def crc_packet(header: bytes, payload: bytes) -> int:
+    """Return CRC32 for a packet."""
+    data = header[:8] + b"\x00\x00\x00\x00" + header[12:] + payload
+    return zlib.crc32(data) & 0xFFFFFFFF
+
 # Socket used for sending packets. The server assigns this when initialized.
 sock = None
 # Controller state mapping assigned by the server
@@ -70,12 +76,6 @@ def queue_packet(pkt: bytes, addr: tuple[str, int], desc: str | None = None) -> 
         return
 
     send_queue.put((pkt, addr, desc))
-
-
-def crc_packet(header: bytes, payload: bytes) -> int:
-    """Return CRC32 for a packet."""
-    data = header[:8] + b"\x00\x00\x00\x00" + header[12:] + payload
-    return zlib.crc32(data) & 0xFFFFFFFF
 
 
 def build_header(msg_type: int, payload: bytes) -> bytes:
