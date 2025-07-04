@@ -41,8 +41,17 @@ def pulse_button_xor(frame, controller_states, slot, *buttons, **button_kwargs):
 def load_controller_loop(path):
     """Load a ``controller_loop`` function from ``path``."""
     spec = importlib.util.spec_from_file_location("input_script", path)
+    if spec is None:
+        raise FileNotFoundError(f"controller script not found: {path!r}")
+    if spec.loader is None:
+        raise ImportError(f"cannot load controller script: {path!r}")
+
     module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
+    try:
+        spec.loader.exec_module(module)
+    except Exception as exc:
+        raise ImportError(f"failed executing controller script {path!r}: {exc}") from exc
+
     if not hasattr(module, "controller_loop"):
         raise AttributeError(f"{path!r} does not define 'controller_loop'")
     return module.controller_loop
