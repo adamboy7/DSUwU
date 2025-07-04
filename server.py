@@ -35,7 +35,7 @@ def parse_arguments():
     parser.add_argument("--server-id", dest="server_id",
                         type=parse_server_id,
                         help="Server identifier (hex)")
-    for i in range(1, 5):
+    for i in range(0, 5):
         parser.add_argument(
             f"--controller{i}-script",
             dest=f"controller{i}_script",
@@ -45,9 +45,7 @@ def parse_arguments():
     args, unknown = parser.parse_known_args()
 
     # Collect script paths for any --controllerN-script option
-    script_map = {
-        i: getattr(args, f"controller{i}_script") for i in range(1, 5)
-    }
+    script_map = {i: getattr(args, f"controller{i}_script") for i in range(0, 5)}
     # Convert special strings so slots can be initialized without a controller
     # thread or marked as always connected.
     for slot, path in list(script_map.items()):
@@ -90,16 +88,19 @@ def parse_arguments():
             elif lowered == "idle":
                 script_map[slot] = IDLE
 
+    start_slot = 0
     max_slot = max(script_map)
-    scripts = [script_map.get(i) for i in range(1, max_slot + 1)]
+    scripts = [script_map.get(i) for i in range(start_slot, max_slot + 1)]
     args.controller_scripts = scripts
-    args.slot_count = max_slot
+    args.slot_count = len(scripts)
+    args.start_slot = start_slot
     return args
 
 
 def start_server(port: int = net_cfg.UDP_port,
                  server_id_value: int | None = None,
-                 scripts: list | None = None):
+                 scripts: list | None = None,
+                 start_slot: int = 1):
     """Launch the DSUwU - Server in a background thread.
 
     Returns a tuple of ``(controller_states, stop_event, thread)`` so callers
@@ -119,14 +120,16 @@ def start_server(port: int = net_cfg.UDP_port,
                     continue
             converted.append(s)
         scripts = converted
-    slot_count = len(scripts) if scripts is not None else 4
-    net_cfg.ensure_slot_count(slot_count)
+    slot_count = len(scripts) if scripts is not None else 4 + (start_slot == 0)
+    max_slot = start_slot + slot_count - 1
+    net_cfg.ensure_slot_count(max_slot)
 
-    controller_states = ControllerStateDict({slot: ControllerState(connected=False) for slot in range(1, slot_count + 1)})
+    slot_range = range(start_slot, max_slot + 1)
+    controller_states = ControllerStateDict({slot: ControllerState(connected=False) for slot in slot_range})
     stop_event = threading.Event()
 
     def _thread_main() -> None:
-        nonlocal port, server_id_value, scripts, slot_count
+        nonlocal port, server_id_value, scripts, slot_count, start_slot
 
         sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         sock.bind((net_cfg.UDP_IP, port))
@@ -142,12 +145,15 @@ def start_server(port: int = net_cfg.UDP_port,
             net_cfg.server_id = server_id_value
 
         script_dir = os.path.dirname(__file__)
-        default_scripts = [
+        default_scripts = []
+        if start_slot == 0:
+            default_scripts.append(None)
+        default_scripts.extend([
             os.path.join(script_dir, "demo", "circle_loop.py"),
             os.path.join(script_dir, "demo", "cross_loop.py"),
             os.path.join(script_dir, "demo", "square_loop.py"),
             os.path.join(script_dir, "demo", "triangle_loop.py"),
-        ]
+        ])
 
         while len(default_scripts) < slot_count:
             default_scripts.append(None)
@@ -156,13 +162,13 @@ def start_server(port: int = net_cfg.UDP_port,
             use_scripts = default_scripts[:slot_count]
         else:
             use_scripts = []
-            for i in range(1, slot_count + 1):
-                if i <= len(scripts):
-                    use_scripts.append(scripts[i - 1])
+            for i in range(slot_count):
+                if i < len(scripts):
+                    use_scripts.append(scripts[i])
                 else:
-                    use_scripts.append(default_scripts[i - 1])
+                    use_scripts.append(default_scripts[i])
 
-        idle_slots = {i for i, sp in enumerate(use_scripts, start=1) if sp is IDLE}
+        idle_slots = {start_slot + i for i, sp in enumerate(use_scripts) if sp is IDLE}
 
         net_cfg.known_slots.clear()
         net_cfg.known_slots.update(idle_slots)
@@ -172,7 +178,7 @@ def start_server(port: int = net_cfg.UDP_port,
 
         controller_threads: list[threading.Thread] = []
         for slot in list(controller_states):
-            script_path = use_scripts[slot - 1]
+            script_path = use_scripts[slot - start_slot]
             if script_path is None or script_path is IDLE:
                 continue
             loop_func = load_controller_loop(script_path)
@@ -307,6 +313,7 @@ if __name__ == "__main__":
         port=args.port or net_cfg.UDP_port,
         server_id_value=args.server_id,
         scripts=scripts,
+        start_slot=args.start_slot,
     )
 
     try:

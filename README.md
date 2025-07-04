@@ -13,19 +13,24 @@ No third‑party packages are required.
 ## Running the server
 
 ```
-python server.py [--port PORT] [--server-id HEX] [--controller1-script PATH]
-                 [--controller2-script PATH] [--controller3-script PATH]
-                 [--controller4-script PATH] [--controller5-script PATH ...]
+python server.py [--port PORT] [--server-id HEX]
+                 [--controller1-script PATH] [--controller2-script PATH]
+                 [--controller3-script PATH] [--controller4-script PATH]
 ```
 
 If no options are provided the server listens on UDP port 26760 and uses the
 example controller scripts found in `demo/` to generate input. Custom scripts
-can be supplied per slot with the `--controllerN-script` arguments. A
+can be supplied per slot with the `--controllerN-script` arguments. Slot 0 is
+disabled by default but can be manually enabled with `--controller0-script`,
+which starts disconnected unless a script is specified. A
 `demo/pygame_controller.py` script is also provided for capturing real controller
 input using the `pygame` library, if for some reason you don't want to use DS4Windows ¯\_(ツ)_/¯
 
-Slots beyond 4 are non‑standard but can be enabled by providing `--controller5-script`,
-`--controller6-script`, etc, up to a soft limit of 256. (Slots beyond 256 can still technically be created, but standard port info packet structures have a 1 byte limit. Most standard clients "tolerate" 8 controllers). Passing `None` as the script path (any case) keeps the slot disconnected, without
+Slots beyond four are non‑standard but can be enabled by providing
+`--controller5-script`, `--controller6-script`, and so on, up to a soft limit of
+256. (Slots beyond 256 can still technically be created, but standard port info
+packet structures have a 1 byte limit. Most standard clients "tolerate" 8 controllers).
+Passing `None` as the script path (any case) keeps the slot disconnected, without
 creating any additional threads. Using `idle` instead (any case) marks the slot as connected and initializes a controller object, without
 creating any additional threads. Scripts can read and write to other slots (at a small risk of input race conditions), accessing a non-existent slot will automatically create it.
 
