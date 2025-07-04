@@ -22,9 +22,16 @@ def pulse_button(frame, controller_states, slot, **button_kwargs):
         controller_states[slot].buttons2 = button_mask_2()
 
 
-def pulse_button_xor(frame, controller_states, slot, **button_kwargs):
-    """Toggle a button mask on ``controller_states`` using XOR."""
-    mask = button_mask_2(**button_kwargs)
+def pulse_button_xor(frame, controller_states, slot, *buttons, **button_kwargs):
+    """Toggle one or more buttons on ``controller_states`` using XOR.
+
+    ``buttons`` may contain button names as positional arguments. Keyword
+    arguments are also accepted for backwards compatibility, any truthy
+    value enables the corresponding button. Falsy values are ignored.
+    """
+    mask_args = {b: True for b in buttons}
+    mask_args.update({k: bool(v) for k, v in button_kwargs.items() if v})
+    mask = button_mask_2(**mask_args)
     if frame % cycle_duration == 0:
         controller_states[slot].buttons2 ^= mask
     if frame % cycle_duration == press_duration:
@@ -64,7 +71,6 @@ def set_slot_mac_address(slot: int, mac: bytes | str) -> None:
     else:
         raise TypeError("mac must be bytes or str")
 
-    net_cfg.ensure_slot_count(slot + 1)
     net_cfg.slot_mac_addresses[slot] = mac_bytes
 
 
@@ -80,7 +86,7 @@ def set_slot_connection_type(controller_states, slot: int, conn_type: int) -> No
     if slot < 0:
         raise ValueError("slot index cannot be negative")
 
-    net_cfg.ensure_slot_count(slot + 1)
+    net_cfg.ensure_slot(slot)
     state = controller_states[slot]
     state.connection_type = conn_type
 

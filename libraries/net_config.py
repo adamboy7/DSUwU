@@ -34,24 +34,62 @@ motor_command = 0x110002
 
 PROTOCOL_VERSION = 1001
 
-# Unique MAC addresses per controller slot
+# Unique MAC addresses per controller slot. Entries may be ``None`` to have
+# an address generated automatically.  The first four slots keep the previous
+# default values as examples of manual assignment.
 slot1_mac_address = b'\xAA\xBB\xCC\xDD\xEE\x01'
 slot2_mac_address = b'\xAA\xBB\xCC\xDD\xEE\x02'
 slot3_mac_address = b'\xAA\xBB\xCC\xDD\xEE\x03'
 slot4_mac_address = b'\xAA\xBB\xCC\xDD\xEE\x04'
 
-slot_mac_addresses = [
-    slot1_mac_address,
-    slot2_mac_address,
-    slot3_mac_address,
-    slot4_mac_address,
-]
+class SlotMacDict(dict):
+    """Dictionary mapping slot numbers to MAC addresses.
+
+    Missing or ``None`` entries are filled automatically using
+    :func:`_generate_mac` with the slot's 1-based index."""
+
+    def __getitem__(self, key: int) -> bytes:
+        if not isinstance(key, int) or key < 0:
+            raise KeyError(key)
+        val = super().get(key)
+        if val is None:
+            val = _generate_mac(key + 1)
+            super().__setitem__(key, val)
+        return val
+
+
+slot_mac_addresses = SlotMacDict({
+    0: slot1_mac_address,
+    1: slot2_mac_address,
+    2: slot3_mac_address,
+    3: slot4_mac_address,
+})
+
+# Number of unique addresses available (48 bits)
+_MAC_LIMIT = 1 << 48
+_mac_wrap_warned = False
+
+
+def _generate_mac(idx: int) -> bytes:
+    """Return a MAC address for ``idx`` (1-based)."""
+    global _mac_wrap_warned
+    mac_int = idx % _MAC_LIMIT
+    if idx >= _MAC_LIMIT and not _mac_wrap_warned:
+        print("Warning: more than 2^48 slots requested; MAC addresses will be"
+              " recycled. Are you insane?")
+        _mac_wrap_warned = True
+    return mac_int.to_bytes(6, 'big')
+
+
+def ensure_slot(slot: int) -> None:
+    """Ensure ``slot_mac_addresses`` has an entry for ``slot``."""
+    if slot < 0:
+        raise ValueError("slot index cannot be negative")
+    slot_mac_addresses[slot]
 
 
 def ensure_slot_count(n: int) -> None:
-    """Extend ``slot_mac_addresses`` so at least ``n`` entries exist."""
-    while len(slot_mac_addresses) < n:
-        idx = len(slot_mac_addresses) + 1
-        mac = b"\xAA\xBB\xCC\xDD\xEE" + bytes([idx & 0xFF])
-        slot_mac_addresses.append(mac)
+    """Generate addresses for slots ``0`` through ``n - 1``."""
+    for i in range(n):
+        ensure_slot(i)
 
