@@ -166,7 +166,9 @@ class DSUClient:
         self.last_request = 0.0
         self.server_states = None
         self.state_callback = None
-        self.request_slots = set(range(4))
+        # Start requesting slots beginning at 1. Slot 0 will be discovered
+        # automatically if the server reports it.
+        self.request_slots = set(range(1, 5))
 
     @property
     def available_slots(self) -> list[int]:
@@ -184,7 +186,8 @@ class DSUClient:
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.sock.bind(("0.0.0.0", 0))
         self.sock.settimeout(0.1)
-        self.request_slots = set(range(4))
+        # Reset initial requested slots to 1-4.
+        self.request_slots = set(range(1, 5))
         self.start()
 
     def start(self):
@@ -313,7 +316,14 @@ class ViewerUI:
         self.capture = InputCapture(self.client)
         self.motion_capture = MotionCapture(self.client)
         self.parser_win = None
-        for slot in range(4):
+        # Initialize tabs based on discovered slots. If slot 0 is present and
+        # there are fewer than 5 slots total, include it; otherwise start at 1.
+        slots = self.client.available_slots
+        if 0 in slots and len(slots) < 5:
+            initial_slots = slots
+        else:
+            initial_slots = [s for s in slots if s != 0]
+        for slot in initial_slots:
             self._ensure_tab(slot)
         self.notebook.pack(fill="both", expand=True)
         self.update()
