@@ -7,9 +7,7 @@ import logging
 from tkinter import Tk, Label
 from tkinter import ttk
 from tkinter import Menu, simpledialog, filedialog
-import json
 
-from libraries.masks import BATTERY_STATES, CONNECTION_TYPES
 from tools.rebroadcast import Rebroadcaster
 from tools.debug_packet import PacketParserWindow, format_state
 from tools.input_capture import InputCapture
@@ -21,12 +19,8 @@ from libraries.net_config import (
     DSU_version_request,
     DSU_version_response,
     DSU_list_ports,
-    DSU_port_info,
     DSU_button_request,
     DSU_button_response,
-    DSU_motor_request,
-    motor_command,
-    DSU_timeout,
 )
 import libraries.net_config as net_cfg
 

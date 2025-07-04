@@ -5,7 +5,6 @@ import threading
 import argparse
 import os
 
-from libraries.net_config import *
 import libraries.net_config as net_cfg
 from libraries.masks import ControllerState, ControllerStateDict
 from libraries.inputs import load_controller_loop
@@ -82,7 +81,7 @@ def parse_arguments():
     return args
 
 
-def start_server(port: int = UDP_port,
+def start_server(port: int = net_cfg.UDP_port,
                  server_id_value: int | None = None,
                  scripts: list | None = None):
     """Launch the DSUwU - Server in a background thread.
@@ -106,7 +105,7 @@ def start_server(port: int = UDP_port,
         nonlocal port, server_id_value, scripts, slot_count
 
         sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        sock.bind((UDP_IP, port))
+        sock.bind((net_cfg.UDP_IP, port))
         sock.setblocking(False)
 
         packet.start_sender(sock, stop_event)
@@ -139,7 +138,7 @@ def start_server(port: int = UDP_port,
                 else:
                     use_scripts.append(default_scripts[i])
 
-        known_slots.clear()
+        net_cfg.known_slots.clear()
         for slot in list(controller_states):
             controller_states[slot].connected = False
         prev_connection_types = {slot: controller_states[slot].connection_type for slot in controller_states}
@@ -165,60 +164,60 @@ def start_server(port: int = UDP_port,
                         data, addr = sock.recvfrom(2048)
                         if data[:4] == b"DSUC":
                             msg_type, = struct.unpack("<I", data[16:20])
-                            if msg_type == DSU_version_request:
+                            if msg_type == net_cfg.DSU_version_request:
                                 packet.handle_version_request(addr)
-                            elif msg_type == DSU_list_ports:
+                            elif msg_type == net_cfg.DSU_list_ports:
                                 packet.handle_list_ports(addr, data)
-                            elif msg_type == DSU_button_request:
+                            elif msg_type == net_cfg.DSU_button_request:
                                 packet.handle_pad_data_request(addr, data)
-                            elif msg_type == DSU_motor_request:
+                            elif msg_type == net_cfg.DSU_motor_request:
                                 packet.handle_motor_request(addr, data)
-                            elif msg_type == motor_command:
+                            elif msg_type == net_cfg.motor_command:
                                 packet.handle_motor_command(addr, data)
                 except BlockingIOError:
                     pass
                 except ConnectionResetError as exc:
                     print(f"Client connection reset: {exc}")
-                    for client in list(active_clients):
+                    for client in list(net_cfg.active_clients):
                         print(f"Removing client {client} due to connection reset")
-                    active_clients.clear()
+                    net_cfg.active_clients.clear()
                 except Exception as exc:
                     print(f"Error processing packet: {exc}")
 
                 now = time.time()
-                for addr in list(active_clients.keys()):
-                    if now - active_clients[addr]['last_seen'] > DSU_timeout:
-                        del active_clients[addr]
+                for addr in list(net_cfg.active_clients.keys()):
+                    if now - net_cfg.active_clients[addr]['last_seen'] > net_cfg.DSU_timeout:
+                        del net_cfg.active_clients[addr]
                         print(f"Client {addr} timed out")
 
                 for s, state in list(controller_states.items()):
                     prev_connected = state.connected
                     prev_type = prev_connection_types.get(s, state.connection_type)
-                    state.update_connection(stick_deadzone)
+                    state.update_connection(net_cfg.stick_deadzone)
 
                     if state.connection_type != prev_type:
                         prev_connection_types[s] = state.connection_type
                         if state.connection_type == -1:
                             state.connected = False
-                            known_slots.discard(s)
-                            for client in list(active_clients):
+                            net_cfg.known_slots.discard(s)
+                            for client in list(net_cfg.active_clients):
                                 packet.send_port_disconnect(client, s)
                         else:
-                            known_slots.add(s)
-                            for client in list(active_clients):
+                            net_cfg.known_slots.add(s)
+                            for client in list(net_cfg.active_clients):
                                 packet.send_port_info(client, s)
 
                     if (
                         state.connection_type != -1
                         and not prev_connected
                         and state.connected
-                        and s not in known_slots
+                        and s not in net_cfg.known_slots
                     ):
-                        known_slots.add(s)
-                        for client in list(active_clients):
+                        net_cfg.known_slots.add(s)
+                        for client in list(net_cfg.active_clients):
                             packet.send_port_info(client, s)
                     if state.connection_type != -1:
-                        for addr in list(active_clients):
+                        for addr in list(net_cfg.active_clients):
                             packet.send_input(
                                 addr,
                                 s,
@@ -249,7 +248,7 @@ def start_server(port: int = UDP_port,
                     motors = list(state.motors)
                     timestamps = list(state.motor_timestamps)
                     for i in range(state.motor_count):
-                        if now - timestamps[i] > DSU_timeout and motors[i] != 0:
+                        if now - timestamps[i] > net_cfg.DSU_timeout and motors[i] != 0:
                             motors[i] = 0
                     state.motors = tuple(motors)
                 time.sleep(0.001)
@@ -275,7 +274,7 @@ if __name__ == "__main__":
         scripts = None
 
     controller_states, stop_event, thread = start_server(
-        port=args.port or UDP_port,
+        port=args.port or net_cfg.UDP_port,
         server_id_value=args.server_id,
         scripts=scripts,
     )
