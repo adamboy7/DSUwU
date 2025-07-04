@@ -115,7 +115,11 @@ def send_port_disconnect(addr, slot):
     if slot >= net_cfg.soft_slot_limit:
         print("Warning: slots above 255 cannot be reported to the client")
         return
-    payload = b"\x00" * 11
+    # Include the slot number in the payload so clients know which
+    # controller was disconnected. Older behaviour filled the entire
+    # payload with zeros which always reported slot 0, leading clients
+    # to believe an extra controller existed.
+    payload = struct.pack("<4B6sB", slot, 0, 0, 0, b"\x00" * 6, 0)
     packet = build_header(net_cfg.DSU_port_info, payload)
     queue_packet(packet, addr, f"port disconnect slot {slot}")
 

@@ -288,7 +288,14 @@ class DSUClient:
                 elif msg_type == DSU_port_info:
                     info = parse_port_info(data)
                     if info:
-                        self.request_slots.add(info["slot"])
+                        slot = info["slot"]
+                        if info.get("state", 0) == 0:
+                            # Remove slots reported as disconnected to avoid
+                            # phantom controllers like an unused slot 0.
+                            self.request_slots.discard(slot)
+                            self.states.pop(slot, None)
+                        else:
+                            self.request_slots.add(slot)
             except socket.timeout:
                 pass
 
