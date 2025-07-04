@@ -25,7 +25,7 @@ can be supplied per slot with the `--controllerN-script` arguments. A
 input using the `pygame` library, if for some reason you don't want to use DS4Windows ¯\_(ツ)_/¯
 
 Slots beyond 4 are non‑standard but can be enabled by providing `--controller5-script`,
-`--controller6-script`, etc. (Most clients seem to tolerate up to 8 controllers, unless you're willing to make your own client). Passing `None` as the script path (any case) keeps the slot disconnected, without
+`--controller6-script`, etc, up to a soft limit of 256. (Slots beyond 256 can still technically be created, but standard port info packet structures have a 1 byte limit. Most standard clients "tolerate" 8 controllers). Passing `None` as the script path (any case) keeps the slot disconnected, without
 creating any aditional threads. Using `idle` instead (any case) marks the slot as connected and initializes a controller object, without
 creating any aditional threads. Scripts can read and write to other slots (at a small risk of input race conditions), accessing a non-existent slot will automatically create it.
 
