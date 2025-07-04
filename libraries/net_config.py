@@ -65,8 +65,11 @@ slot_mac_addresses = SlotMacDict({
     3: slot4_mac_address,
 })
 
-# Number of unique addresses available (48 bits)
-_MAC_LIMIT = 1 << 48
+# Number of unique addresses we care about. DSU slots use an unsigned 8 bit
+# value which caps the protocol at 256 simultaneous controllers.  We still
+# allow additional slots to exist internally, but they cannot be reported to a
+# DSU client.
+_MAC_LIMIT = 256
 _mac_wrap_warned = False
 
 
@@ -75,8 +78,7 @@ def _generate_mac(idx: int) -> bytes:
     global _mac_wrap_warned
     mac_int = idx % _MAC_LIMIT
     if idx >= _MAC_LIMIT and not _mac_wrap_warned:
-        print("Warning: more than 2^48 slots requested; MAC addresses will be"
-              " recycled. Are you insane?")
+        print("Warning: slots above 256 cannot be reported to the client")
         _mac_wrap_warned = True
     return mac_int.to_bytes(6, 'big')
 

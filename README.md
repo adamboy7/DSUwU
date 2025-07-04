@@ -21,18 +21,20 @@ python server.py [--port PORT] [--server-id HEX] [--controller1-script PATH]
 If no options are provided the server listens on UDP port 26760 and uses the
 example controller scripts found in `demo/` to generate input. Custom scripts
 can be supplied per slot with the `--controllerN-script` arguments. A
-`pygame_controller.py` script is also provided for capturing real controller
+`demo/pygame_controller.py` script is also provided for capturing real controller
 input using the `pygame` library, if for some reason you don't want to use DS4Windows ¯\_(ツ)_/¯
 
 Slots beyond 4 are non‑standard but can be enabled by providing `--controller5-script`,
-`--controller6-script`, etc. Passing `None` as the script path (any case) initializes a slot without running
-a controller loop. Using `idle` instead (any case) marks the slot as connected
-with a generated MAC address but runs no script. Scripts can read and write to other slots (at a small risk of input race conditions), accessing a non-existent slot will automatically create it.
+`--controller6-script`, etc. (Most clients seem to tolerate up to 8 controllers, unless you're willing to make your own client). Passing `None` as the script path (any case) keeps the slot disconnected, without running
+creating any aditional threads. Using `idle` instead (any case) marks the slot as connected and initilises a controller object, without
+creating any aditional threads. Scripts can read and write to other slots (at a small risk of input race conditions), accessing a non-existent slot will automatically create it.
 
 ## Running the viewer
 
-DSOwO connects to a DSU server and displays the state of up to four
-controllers. Other tools are bundled in for use in debugging.
+DSOwO connects to a DSU server and displays the state of connected
+controllers. It automatically detects additional slots. When five or
+more controllers are present, the UI switches from a tabbed layout to a
+drop-down selector. Other tools are bundled in for use in debugging.
 
 ```
 python viewer.py

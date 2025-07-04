@@ -25,7 +25,10 @@ def parse_port_info(data: bytes):
     """Decode a DSU port info response packet."""
     from libraries.net_config import DSU_port_info
 
-    if len(data) < 32:
+    # Port info packets contain an 11 byte payload plus a 20 byte header and
+    # 4 byte message type for a total of 31 bytes. 32 was used previously which
+    # prevented parsing valid packets.
+    if len(data) < 31:
         return None
     msg_type, = struct.unpack_from("<I", data, 16)
     if msg_type != DSU_port_info:
