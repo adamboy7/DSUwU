@@ -98,7 +98,7 @@ def ensure_slot(slot: int) -> None:
 
 
 def ensure_slot_count(n: int) -> None:
-    """Generate addresses for slots ``1`` through ``n``.
+    """Generate addresses for slots ``1`` through ``n`` and slot ``0``.
 
     Also prints warnings for unusual slot counts."""
     if n > 4:
@@ -111,6 +111,7 @@ def ensure_slot_count(n: int) -> None:
         _warn_once(
             "Warning: you are insane; MAC addresses will be truncated for slots above 2^48"
         )
+    ensure_slot(0)
     for i in range(1, n + 1):
         ensure_slot(i)
 
