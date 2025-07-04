@@ -11,9 +11,9 @@ def _noop_update(self, dz=net_cfg.stick_deadzone):
 
 
 def controller_loop(stop_event, controller_states, slot):
-    """Mark the first four controller slots as always connected."""
+    """Mark the first ten controller slots as always connected."""
 
-    for s in range(4):
+    for s in range(10):
         state = controller_states[s]
         state.connection_type = 2  # Default to Bluetooth
         state.connected = True
