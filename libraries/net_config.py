@@ -70,16 +70,23 @@ slot_mac_addresses = SlotMacDict({
 # numbers start at 0, the highest controller number we can report is 255.
 # Additional slots may exist internally but cannot be reported to a DSU client.
 soft_slot_limit = 256
-_mac_wrap_warned = False
+
+# Track which warnings have been printed so they only show once
+_warned_messages: set[str] = set()
+
+
+def _warn_once(msg: str) -> None:
+    """Print ``msg`` if it has not been shown before."""
+    if msg not in _warned_messages:
+        print(msg)
+        _warned_messages.add(msg)
 
 
 def _generate_mac(idx: int) -> bytes:
     """Return a MAC address for ``idx``."""
-    global _mac_wrap_warned
     mac_int = idx % soft_slot_limit
-    if idx >= soft_slot_limit and not _mac_wrap_warned:
-        print("Warning: slots above 255 cannot be reported to the client")
-        _mac_wrap_warned = True
+    if idx >= soft_slot_limit:
+        _warn_once("Warning: slots above 255 cannot be reported to the client")
     return mac_int.to_bytes(6, 'big')
 
 
@@ -95,13 +102,13 @@ def ensure_slot_count(n: int) -> None:
 
     Also prints warnings for unusual slot counts."""
     if n > 4:
-        print("Warning: more than four controllers is non-standard but supported.")
+        _warn_once("Warning: more than four controllers is non-standard but supported.")
     if n > soft_slot_limit:
-        print(
+        _warn_once(
             "Warning: more than 256 controllers configured; only slots up to 255 can be reported"
         )
     if n > (1 << 48):
-        print(
+        _warn_once(
             "Warning: you are insane; MAC addresses will be truncated for slots above 2^48"
         )
     for i in range(1, n + 1):
