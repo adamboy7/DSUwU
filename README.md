@@ -26,7 +26,7 @@ input using the `pygame` library, if for some reason you don't want to use DS4Wi
 
 Slots beyond 4 are non‑standard but can be enabled by providing `--controller5-script`,
 `--controller6-script`, etc. (Most clients seem to tolerate up to 8 controllers, unless you're willing to make your own client). Passing `None` as the script path (any case) keeps the slot disconnected, without running
-creating any aditional threads. Using `idle` instead (any case) marks the slot as connected and initilises a controller object, without
+creating any aditional threads. Using `idle` instead (any case) marks the slot as connected and initializes a controller object, without
 creating any aditional threads. Scripts can read and write to other slots (at a small risk of input race conditions), accessing a non-existent slot will automatically create it.
 
 ## Running the viewer
