@@ -26,8 +26,8 @@ input using the `pygame` library, if for some reason you don't want to use DS4Wi
 
 Slots beyond 4 are non‑standard but can be enabled by providing `--controller5-script`,
 `--controller6-script`, etc, up to a soft limit of 256. (Slots beyond 256 can still technically be created, but standard port info packet structures have a 1 byte limit. Most standard clients "tolerate" 8 controllers). Passing `None` as the script path (any case) keeps the slot disconnected, without
-creating any aditional threads. Using `idle` instead (any case) marks the slot as connected and initializes a controller object, without
-creating any aditional threads. Scripts can read and write to other slots (at a small risk of input race conditions), accessing a non-existent slot will automatically create it.
+creating any additional threads. Using `idle` instead (any case) marks the slot as connected and initializes a controller object, without
+creating any additional threads. Scripts can read and write to other slots (at a small risk of input race conditions), accessing a non-existent slot will automatically create it.
 
 ## Running the viewer
 
@@ -68,6 +68,6 @@ input responses. (Helps answer the age old question, "WHY ISN'T IT WORKING?")
 
 ## What the heck is a DSU?
 
-DSU is the standard based on the old Cemuhook plugin for motion data. Mainly implimented and supported by DS4Windows. It lets you send button, joystick, trigger, analog button presses, motion, touch, and "unoffically" vibration. A cross between a PS3/4 style controller and a WiiU gamepad, runs on UDP networking.
+DSU is the standard based on the old Cemuhook plugin for motion data. Mainly implemented and supported by DS4Windows. It lets you send button, joystick, trigger, analog button presses, motion, touch, and "unofficially" vibration. A cross between a PS3/4 style controller and a WiiU gamepad, runs on UDP networking.
 
 https://v1993.github.io/cemuhook-protocol/
