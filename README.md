@@ -65,6 +65,6 @@ input responses. (Helps answer the age old question, "WHY ISN'T IT WORKING?")
 
 ## What the heck is a DSU?
 
-DSU is the standard based on the old Cemuhook plugin for motion data. Mainly implimented and supported by DS4Windows. It lets you send button, joystick, trigger, analog button presses, motion, touch, and "unoffically" vibration. A cross between a PS3/4 Controller and a WiiU gamepad.
+DSU is the standard based on the old Cemuhook plugin for motion data. Mainly implimented and supported by DS4Windows. It lets you send button, joystick, trigger, analog button presses, motion, touch, and "unoffically" vibration. A cross between a PS3/4 Controller and a WiiU gamepad, runs on UDP networking.
 
 https://v1993.github.io/cemuhook-protocol/
