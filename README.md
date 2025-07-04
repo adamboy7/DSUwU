@@ -1,9 +1,7 @@
 # DSUwU
 
-DSUwU is a small Python implementation of the DSU protocol. It provides a
-minimal server that broadcasts controller state and a simple viewer for
-inspecting DSU packets. The project is useful for testing or debugging
-applications that consume DSU controller input.
+DSUwU is a Python implementation of the DSU protocol. It provides a server that tracks and simulates inputs for Cemu and other "cemuhook" like clients. A simple viewer for
+inspecting DSU packets is also included in DSOwO. The project is useful for scripting automated controller actions, allowing you to turn functionally anything into a controller.
 
 ## Prerequisites
 
@@ -21,29 +19,19 @@ python server.py [--port PORT] [--server-id HEX] [--controller1-script PATH]
 ```
 
 If no options are provided the server listens on UDP port 26760 and uses the
-example controller scripts found in `demo/` to generate input. These include
-`circle_loop.py`, `cross_loop.py`, `square_loop.py`, `triangle_loop.py`, and an
-`idle_loop.py` that keeps a slot connected without sending input. Custom scripts
+example controller scripts found in `demo/` to generate input. Custom scripts
 can be supplied per slot with the `--controllerN-script` arguments. A
 `pygame_controller.py` script is also provided for capturing real controller
-input using the `pygame` library. Set ``JOYSTICK_INDEX`` near the top of that
-file to choose which joystick to read when multiple are connected. Slots beyond 4
-are non‑standard but can be enabled by providing `--controller5-script`,
-`--controller6-script`, and so on. When extra scripts are supplied the server
-will create that many controller slots. Use `None` to omit the controller
-thread for a slot while still allocating it.
+input using the `pygame` library, if for some reason you don't want to use DS4Windows ¯\_(ツ)_/¯
 
-Slots without a script start disconnected. To keep such a slot connected as an
-idle buffer, set `controller_states[slot].idle = True` after calling
-`start_server()`. Accessing a non-existent slot will automatically create it so
-no extra setup is required.
-Passing `None` as the script path (any case) initializes a slot without running
-a controller loop.
+Slots beyond 4 are non‑standard but can be enabled by providing `--controller5-script`,
+`--controller6-script`, etc. Passing `None` as the script path (any case) initializes a slot without running
+a controller loop (For if you for some reason want to pass inputs or information to other threads, for example). Scripts can read and write to other slots (at a small risk of input race conditions), accessing a non-existent slot will automatically create it.
 
 ## Running the viewer
 
-The viewer connects to a DSU server and displays the state of up to four
-controllers.
+DSOwO connects to a DSU server and displays the state of up to four
+controllers. Other tools are bundled in for use in debugging.
 
 ```
 python viewer.py
@@ -51,30 +39,32 @@ python viewer.py
 
 By default it connects to `127.0.0.1` on port `26760`. The port can be changed
 from the **Options → Port** menu once the GUI is running. Use **Options →
-Remote Connection** to connect to a different DSU server without restarting the
-program.
+Remote Connection** to connect to a remote DSU server, rather than the typical localhost.
 
-The viewer also includes a **Rebroadcast** tool found under **Tools →
-Rebroadcast**. This feature launches a temporary DSU server that mirrors the
+**Tools → Rebroadcast**. This tool launches a sub-DSU server that mirrors the
 data captured by the viewer. When prompted for the rebroadcast port (default is
-`26761`), enter the desired port and the viewer will forward all input data to
-that port so other applications can consume it.
+`26761`), enter the desired port and the viewer will forward all input data
+so other applications can consume it. (DSU protocol supports multiple clients, this feature was mostly just for me :P)
 
-The **Start input capture** tool lets you record controller input to a file.
+**Tools → Start input capture**. This tool lets you record controller input to a file.
 Choose the save location when prompted and the viewer will log state changes as
-JSON lines. Only button masks, sticks, triggers and touch values are recorded,
-so motion data is ignored. While capturing, the menu entry changes to **Stop
+JSON lines. Motion data is ignored for the sake of reasonable log sizes. While capturing, the menu entry changes to **Stop
 input capture** which ends the capture and reverts the menu.
 
-The **Start motion capture** tool records accelerometer and gyroscope values
-whenever the viewer receives a new packet. After choosing where to save, the
+**Tools → Start motion capture**. This tool records accelerometer and gyroscope values
+whenever the viewer receives a new packet. Choose the save location when prompted, the
 viewer writes a JSON line each time the motion data changes containing the
 timestamp, slot, motion timestamp, accelerometer and gyro readings. While
 active, the menu entry shows **Stop motion capture** to end the session.
 
-The **Packet Parser** tool opens a window with a scrolling text box where raw
+**Tools → Packet Parser**. This tool opens a window with a scrolling text box where raw
 DSU packet bytes can be pasted (for example from a Wireshark capture). After
 pressing **Parse** you can step through the packets using **Next** and
 **Prev** to inspect each message type, including decoded button states for
-input responses.
+input responses. (Helps answer the age old question, "WHY ISN'T IT WORKING?")
 
+## What the heck is a DSU?
+
+DSU is the standard based on the old Cemuhook plugin for motion data. Mainly implimented and supported by DS4Windows. It lets you send motion, button, touch, and "unoffically" vibration.
+
+https://v1993.github.io/cemuhook-protocol/
