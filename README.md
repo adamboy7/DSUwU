@@ -31,8 +31,10 @@ with a generated MAC address but runs no script. Scripts can read and write to o
 
 ## Running the viewer
 
-DSOwO connects to a DSU server and displays the state of up to four
-controllers. Other tools are bundled in for use in debugging.
+DSOwO connects to a DSU server and displays the state of connected
+controllers. It automatically detects additional slots. When five or
+more controllers are present, the UI switches from a tabbed layout to a
+drop-down selector. Other tools are bundled in for use in debugging.
 
 ```
 python viewer.py

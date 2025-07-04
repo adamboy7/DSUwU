@@ -4,12 +4,12 @@ import socket
 import time
 import threading
 import logging
-from tkinter import Tk, Label
+from tkinter import Tk, Label, StringVar
 from tkinter import ttk
 from tkinter import Menu, simpledialog, filedialog
 
 from tools.rebroadcast import Rebroadcaster
-from tools.debug_packet import PacketParserWindow, format_state
+from tools.debug_packet import PacketParserWindow, format_state, parse_port_info
 from tools.input_capture import InputCapture
 from tools.motion_capture import MotionCapture
 
@@ -21,6 +21,7 @@ from libraries.net_config import (
     DSU_list_ports,
     DSU_button_request,
     DSU_button_response,
+    DSU_port_info,
 )
 import libraries.net_config as net_cfg
 
@@ -170,6 +171,12 @@ class DSUClient:
         self.last_request = 0.0
         self.server_states = None
         self.state_callback = None
+        self.request_slots = set(range(4))
+
+    @property
+    def available_slots(self) -> list[int]:
+        """Return a sorted list of discovered controller slots."""
+        return sorted(self.request_slots)
 
     def restart(self, port: int | None = None, server_ip: str | None = None):
         """Restart client communications with an optional new port or server IP."""
@@ -182,6 +189,7 @@ class DSUClient:
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.sock.bind(("0.0.0.0", 0))
         self.sock.settimeout(0.1)
+        self.request_slots = set(range(4))
         self.start()
 
     def start(self):
@@ -251,31 +259,38 @@ class DSUClient:
         except socket.timeout:
             pass
 
-        # Request port info for 4 slots
-        payload = struct.pack("<I", 4) + bytes(range(4))
+        # Request port info for a range of slots to discover controllers
+        payload = struct.pack("<I", 16) + bytes(range(16))
         self._send(DSU_list_ports, payload)
 
         while self.running:
             now = time.time()
             if now - self.last_request > 1.0:
-                for slot in range(4):
+                for slot in sorted(self.request_slots):
                     pld = struct.pack("B", slot) + b"\x00" * 7
                     self._send(DSU_button_request, pld)
                 self.last_request = now
 
             try:
                 data, _ = self.sock.recvfrom(2048)
-                state = parse_button_response(data)
-                if state:
-                    slot = state["slot"]
-                    self.states[slot] = state
-                    if self.server_states is not None:
-                        self._copy_to_server(slot, state)
-                    if self.state_callback is not None:
-                        try:
-                            self.state_callback(slot, state)
-                        except Exception as exc:
-                            logging.error("State callback failed: %s", exc)
+                msg_type, = struct.unpack_from("<I", data, 16)
+                if msg_type == DSU_button_response:
+                    state = parse_button_response(data)
+                    if state:
+                        slot = state["slot"]
+                        self.states[slot] = state
+                        self.request_slots.add(slot)
+                        if self.server_states is not None:
+                            self._copy_to_server(slot, state)
+                        if self.state_callback is not None:
+                            try:
+                                self.state_callback(slot, state)
+                            except Exception as exc:
+                                logging.error("State callback failed: %s", exc)
+                elif msg_type == DSU_port_info:
+                    info = parse_port_info(data)
+                    if info:
+                        self.request_slots.add(info["slot"])
             except socket.timeout:
                 pass
 
@@ -293,19 +308,18 @@ class ViewerUI:
         self.capture_menu_index = None
         self.motion_menu_index = None
         self._build_menu()
+        self.mode = "tabs"
         self.notebook = ttk.Notebook(self.root)
         self.labels = {}
+        self.dropdown = None
+        self.dropdown_var = None
+        self.single_label = None
         self.rebroadcaster = Rebroadcaster()
         self.capture = InputCapture(self.client)
         self.motion_capture = MotionCapture(self.client)
         self.parser_win = None
         for slot in range(4):
-            frame = ttk.Frame(self.notebook)
-            self.notebook.add(frame, text=f"Slot {slot}")
-            label = Label(frame, text="No data", justify="left", anchor="nw",
-                          font=("Courier", 10))
-            label.pack(fill="both", expand=True)
-            self.labels[slot] = label
+            self._ensure_tab(slot)
         self.notebook.pack(fill="both", expand=True)
         self.update()
 
@@ -324,6 +338,33 @@ class ViewerUI:
         self.capture_menu_index = self.tools_menu.index("end")
         self.tools_menu.add_command(label="Start motion capture", command=self._start_motion_capture)
         self.motion_menu_index = self.tools_menu.index("end")
+
+    def _ensure_tab(self, slot: int) -> None:
+        if slot in self.labels:
+            return
+        frame = ttk.Frame(self.notebook)
+        self.notebook.add(frame, text=f"Slot {slot}")
+        label = Label(frame, text="No data", justify="left", anchor="nw",
+                      font=("Courier", 10))
+        label.pack(fill="both", expand=True)
+        self.labels[slot] = label
+
+    def _switch_to_dropdown(self) -> None:
+        if self.mode == "dropdown":
+            return
+        self.mode = "dropdown"
+        self.notebook.pack_forget()
+        self.dropdown_var = StringVar()
+        self.dropdown = ttk.Combobox(self.root, textvariable=self.dropdown_var,
+                                     state="readonly")
+        slots = self.client.available_slots
+        self.dropdown["values"] = slots
+        if slots:
+            self.dropdown_var.set(str(slots[0]))
+        self.dropdown.pack(fill="x")
+        self.single_label = Label(self.root, text="No data", justify="left",
+                                  anchor="nw", font=("Courier", 10))
+        self.single_label.pack(fill="both", expand=True)
 
     def _start_rebroadcast(self):
         port = simpledialog.askinteger(
@@ -414,9 +455,26 @@ class ViewerUI:
             self.client.restart(server_ip=ip)
 
     def update(self):
-        for slot in range(4):
-            state = self.client.states.get(slot)
-            self.labels[slot].config(text=format_state(state))
+        slots = self.client.available_slots
+        if self.mode == "tabs":
+            if len(slots) > 4:
+                self._switch_to_dropdown()
+            else:
+                for slot in slots:
+                    self._ensure_tab(slot)
+                for slot, label in self.labels.items():
+                    state = self.client.states.get(slot)
+                    label.config(text=format_state(state))
+        else:
+            self.dropdown["values"] = slots
+            if slots:
+                if self.dropdown_var.get() not in [str(s) for s in slots]:
+                    self.dropdown_var.set(str(slots[0]))
+                slot = int(self.dropdown_var.get())
+                state = self.client.states.get(slot)
+                self.single_label.config(text=format_state(state))
+            else:
+                self.single_label.config(text="No data")
         self.root.after(100, self.update)
 
     def run(self):
