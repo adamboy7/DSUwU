@@ -49,13 +49,13 @@ so other applications can consume it. (DSU protocol supports multiple clients, t
 **Tools → Start input capture**. This tool lets you record controller input to a file.
 Choose the save location when prompted and the viewer will log state changes as
 JSON lines. Motion data is ignored for the sake of reasonable log sizes. While capturing, the menu entry changes to **Stop
-input capture** which ends the capture and reverts the menu.
+input capture** which ends the capture and reverts the menu. Mainly for use in the `Replay_Inputs(*Inputs_Path*, Motion_Path)` script function.
 
 **Tools → Start motion capture**. This tool records accelerometer and gyroscope values
 whenever the viewer receives a new packet. Choose the save location when prompted, the
 viewer writes a JSON line each time the motion data changes containing the
 timestamp, slot, motion timestamp, accelerometer and gyro readings. While
-active, the menu entry shows **Stop motion capture** to end the session.
+active, the menu entry shows **Stop motion capture** to end the session. Mainly for use in the `Replay_Inputs(Inputs_Path, *Motion_Path*)` script function.
 
 **Tools → Packet Parser**. This tool opens a window with a scrolling text box where raw
 DSU packet bytes can be pasted (for example from a Wireshark capture). After
