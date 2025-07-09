@@ -21,8 +21,11 @@ from .dsu_constants import (
     DSU_motor_response,
     motor_command,
 )
-from ..libraries import net_config as net_cfg
-from ..libraries.masks import ControllerStateDict
+# Access the ``libraries`` package using absolute imports. ``protocols`` does
+# not sit inside a larger package hierarchy so moving up a level via a relative
+# import fails when this module is executed directly.
+from libraries import net_config as net_cfg
+from libraries.masks import ControllerStateDict
 
 
 class DSUProtocol:

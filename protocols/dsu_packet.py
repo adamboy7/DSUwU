@@ -5,8 +5,11 @@ import queue
 import threading
 import socket
 
-from ..libraries import net_config as net_cfg
-from ..libraries.masks import button_mask_1, button_mask_2, touchpad_input
+# Import libraries from the project root. These modules are not part of a
+# package hierarchy above ``protocols`` so absolute imports are required when
+# this file is executed as part of the application.
+from libraries import net_config as net_cfg
+from libraries.masks import button_mask_1, button_mask_2, touchpad_input
 from .dsu_constants import (
     DSU_port_info,
     DSU_version_response,
