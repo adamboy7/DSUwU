@@ -12,8 +12,9 @@ from tools.debug_packet import PacketParserWindow, format_state, parse_port_info
 from tools.input_capture import InputCapture
 from tools.motion_capture import MotionCapture
 
-from libraries.net_config import (
-    UDP_port,
+from libraries.net_config import UDP_port
+import libraries.net_config as net_cfg
+from protocols.dsu_constants import (
     PROTOCOL_VERSION,
     DSU_version_request,
     DSU_version_response,
@@ -22,8 +23,7 @@ from libraries.net_config import (
     DSU_button_response,
     DSU_port_info,
 )
-import libraries.net_config as net_cfg
-from libraries.packet import crc_packet
+from protocols.dsu_packet import crc_packet
 
 def build_client_packet(msg_type: int, payload: bytes) -> bytes:
     msg = struct.pack("<I", msg_type) + payload

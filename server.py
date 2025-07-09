@@ -1,4 +1,3 @@
-import struct
 import time
 import socket
 import threading
@@ -8,7 +7,7 @@ import os
 import libraries.net_config as net_cfg
 from libraries.masks import ControllerState, ControllerStateDict
 from libraries.inputs import load_controller_loop
-from libraries import packet
+from protocols.dsu import DSUProtocol
 
 # Sentinel used when a controller slot should remain idle but be treated as
 # connected by the server.
@@ -100,7 +99,8 @@ def parse_arguments():
 def start_server(port: int = net_cfg.UDP_port,
                  server_id_value: int | None = None,
                  scripts: list | None = None,
-                 start_slot: int = 0):
+                 start_slot: int = 0,
+                 protocol_cls: type[DSUProtocol] = DSUProtocol):
     """Launch the DSUwU - Server in a background thread.
 
     Returns a tuple of ``(controller_states, stop_event, thread)`` so callers
@@ -135,14 +135,7 @@ def start_server(port: int = net_cfg.UDP_port,
         sock.bind((net_cfg.UDP_IP, port))
         sock.setblocking(False)
 
-        packet.start_sender(sock, stop_event)
-        packet.controller_states = controller_states
-
-        if server_id_value is not None:
-            global server_id
-            server_id = server_id_value
-            packet.server_id = server_id_value
-            net_cfg.server_id = server_id_value
+        protocol = protocol_cls(server_id_value)
 
         script_dir = os.path.dirname(__file__)
         default_scripts = []
@@ -174,7 +167,6 @@ def start_server(port: int = net_cfg.UDP_port,
         net_cfg.known_slots.update(idle_slots)
         for slot in list(controller_states):
             controller_states[slot].connected = slot in idle_slots
-        prev_connection_types = {slot: controller_states[slot].connection_type for slot in controller_states}
 
         controller_threads: list[threading.Thread] = []
         for slot in list(controller_states):
@@ -190,103 +182,12 @@ def start_server(port: int = net_cfg.UDP_port,
             t.start()
             controller_threads.append(t)
 
+        protocol.initialize(sock, controller_states, stop_event, idle_slots)
+
         try:
             while not stop_event.is_set():
-                try:
-                    while True:
-                        data, addr = sock.recvfrom(2048)
-                        if data[:4] == b"DSUC":
-                            msg_type, = struct.unpack("<I", data[16:20])
-                            if msg_type == net_cfg.DSU_version_request:
-                                packet.handle_version_request(addr)
-                            elif msg_type == net_cfg.DSU_list_ports:
-                                packet.handle_list_ports(addr, data)
-                            elif msg_type == net_cfg.DSU_button_request:
-                                packet.handle_pad_data_request(addr, data)
-                            elif msg_type == net_cfg.DSU_motor_request:
-                                packet.handle_motor_request(addr, data)
-                            elif msg_type == net_cfg.motor_command:
-                                packet.handle_motor_command(addr, data)
-                except BlockingIOError:
-                    pass
-                except ConnectionResetError as exc:
-                    print(f"Client connection reset: {exc}")
-                    for client in list(net_cfg.active_clients):
-                        print(f"Removing client {client} due to connection reset")
-                    net_cfg.active_clients.clear()
-                except Exception as exc:
-                    print(f"Error processing packet: {exc}")
-
-                now = time.time()
-                for addr in list(net_cfg.active_clients.keys()):
-                    if now - net_cfg.active_clients[addr]['last_seen'] > net_cfg.DSU_timeout:
-                        del net_cfg.active_clients[addr]
-                        print(f"Client {addr} timed out")
-
-                for s, state in list(controller_states.items()):
-                    prev_connected = state.connected
-                    prev_type = prev_connection_types.get(s, state.connection_type)
-                    if s in idle_slots:
-                        state.connected = True
-                    else:
-                        state.update_connection(net_cfg.stick_deadzone)
-
-                    if state.connection_type != prev_type:
-                        prev_connection_types[s] = state.connection_type
-                        if state.connection_type == -1:
-                            state.connected = False
-                            net_cfg.known_slots.discard(s)
-                            for client in list(net_cfg.active_clients):
-                                packet.send_port_disconnect(client, s)
-                        else:
-                            net_cfg.known_slots.add(s)
-                            for client in list(net_cfg.active_clients):
-                                packet.send_port_info(client, s)
-
-                    if (
-                        state.connection_type != -1
-                        and not prev_connected
-                        and state.connected
-                        and s not in net_cfg.known_slots
-                    ):
-                        net_cfg.known_slots.add(s)
-                        for client in list(net_cfg.active_clients):
-                            packet.send_port_info(client, s)
-                    if state.connection_type != -1:
-                        for addr in list(net_cfg.active_clients):
-                            packet.send_input(
-                                addr,
-                                s,
-                                connected=state.connected,
-                                packet_num=state.packet_num,
-                                buttons1=state.buttons1,
-                                buttons2=state.buttons2,
-                                home=state.home,
-                                touch_button=state.touch_button,
-                                L_stick=state.L_stick,
-                                R_stick=state.R_stick,
-                                dpad_analog=state.dpad_analog,
-                                face_analog=state.face_analog,
-                                analog_R1=state.analog_R1,
-                                analog_L1=state.analog_L1,
-                                analog_R2=state.analog_R2,
-                                analog_L2=state.analog_L2,
-                                touchpad_input1=state.touchpad_input1,
-                                touchpad_input2=state.touchpad_input2,
-                                motion_timestamp=state.motion_timestamp,
-                                accelerometer=state.accelerometer,
-                                gyroscope=state.gyroscope,
-                                connection_type=state.connection_type,
-                                battery=state.battery,
-                            )
-                for state in list(controller_states.values()):
-                    state.packet_num = (state.packet_num + 1) & 0xFFFFFFFF
-                    motors = list(state.motors)
-                    timestamps = list(state.motor_timestamps)
-                    for i in range(state.motor_count):
-                        if now - timestamps[i] > net_cfg.DSU_timeout and motors[i] != 0:
-                            motors[i] = 0
-                    state.motors = tuple(motors)
+                protocol.handle_requests(sock)
+                protocol.update_clients(controller_states)
                 time.sleep(0.001)
         except Exception as exc:
             print(f"Server loop crashed: {exc}")
@@ -294,7 +195,7 @@ def start_server(port: int = net_cfg.UDP_port,
             stop_event.set()
             for t in controller_threads:
                 t.join()
-            packet.stop_sender()
+            protocol.shutdown()
             sock.close()
 
     thread = threading.Thread(target=_thread_main, daemon=True)
