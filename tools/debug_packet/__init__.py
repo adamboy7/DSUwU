@@ -11,7 +11,7 @@ __all__ = [
 
 def parse_button_request(data: bytes):
     """Return slot number from a DSU input request packet."""
-    from libraries.net_config import DSU_button_request
+    from protocols.dsu_constants import DSU_button_request
 
     if len(data) < 24:
         return None
@@ -23,7 +23,7 @@ def parse_button_request(data: bytes):
 
 def parse_port_info(data: bytes):
     """Decode a DSU port info response packet."""
-    from libraries.net_config import DSU_port_info
+    from protocols.dsu_constants import DSU_port_info
 
     # Port info packets contain an 11 byte payload plus a 20 byte header and
     # 4 byte message type for a total of 31 bytes. 32 was used previously which
@@ -47,7 +47,7 @@ def parse_port_info(data: bytes):
 
 
 def packet_name(tag: bytes, msg_type: int) -> str:
-    from libraries.net_config import (
+    from protocols.dsu_constants import (
         DSU_version_request,
         DSU_list_ports,
         DSU_button_request,

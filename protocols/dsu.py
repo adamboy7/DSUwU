@@ -10,6 +10,17 @@ import threading
 from typing import Iterable
 
 from . import dsu_packet as packet
+from .dsu_constants import (
+    DSU_version_request,
+    DSU_version_response,
+    DSU_list_ports,
+    DSU_port_info,
+    DSU_button_request,
+    DSU_button_response,
+    DSU_motor_request,
+    DSU_motor_response,
+    motor_command,
+)
 from ..libraries import net_config as net_cfg
 from ..libraries.masks import ControllerStateDict
 
@@ -50,15 +61,15 @@ class DSUProtocol:
                 if len(data) < 20:
                     continue
                 msg_type, = struct.unpack("<I", data[16:20])
-                if msg_type == net_cfg.DSU_version_request:
+                if msg_type == DSU_version_request:
                     packet.handle_version_request(addr)
-                elif msg_type == net_cfg.DSU_list_ports:
+                elif msg_type == DSU_list_ports:
                     packet.handle_list_ports(addr, data)
-                elif msg_type == net_cfg.DSU_button_request:
+                elif msg_type == DSU_button_request:
                     packet.handle_pad_data_request(addr, data)
-                elif msg_type == net_cfg.DSU_motor_request:
+                elif msg_type == DSU_motor_request:
                     packet.handle_motor_request(addr, data)
-                elif msg_type == net_cfg.motor_command:
+                elif msg_type == motor_command:
                     packet.handle_motor_command(addr, data)
         except BlockingIOError:
             pass

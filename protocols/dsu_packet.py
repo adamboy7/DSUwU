@@ -7,6 +7,13 @@ import socket
 
 from ..libraries import net_config as net_cfg
 from ..libraries.masks import button_mask_1, button_mask_2, touchpad_input
+from .dsu_constants import (
+    DSU_port_info,
+    DSU_version_response,
+    DSU_motor_response,
+    DSU_button_response,
+    PROTOCOL_VERSION,
+)
 
 
 def crc_packet(header: bytes, payload: bytes) -> int:
@@ -82,9 +89,9 @@ def build_header(msg_type: int, payload: bytes) -> bytes:
     """Build a DSU packet header for ``msg_type`` and ``payload``."""
     msg = struct.pack('<I', msg_type) + payload
     length = len(msg)
-    header = struct.pack('<4sHHII', b'DSUS', net_cfg.PROTOCOL_VERSION, length, 0, net_cfg.server_id)
+    header = struct.pack('<4sHHII', b'DSUS', PROTOCOL_VERSION, length, 0, net_cfg.server_id)
     crc = crc_packet(header, msg)
-    header = struct.pack('<4sHHII', b'DSUS', net_cfg.PROTOCOL_VERSION, length, crc, net_cfg.server_id)
+    header = struct.pack('<4sHHII', b'DSUS', PROTOCOL_VERSION, length, crc, net_cfg.server_id)
     return header + msg
 
 
@@ -106,7 +113,7 @@ def send_port_info(addr, slot):
             mac_address,
             state.battery,
         )
-    packet = build_header(net_cfg.DSU_port_info, payload)
+    packet = build_header(DSU_port_info, payload)
     queue_packet(packet, addr, f"port info slot {slot}")
 
 
@@ -120,13 +127,13 @@ def send_port_disconnect(addr, slot):
     # payload with zeros which always reported slot 0, leading clients
     # to believe an extra controller existed.
     payload = struct.pack("<4B6sB", slot, 0, 0, 0, b"\x00" * 6, 0)
-    packet = build_header(net_cfg.DSU_port_info, payload)
+    packet = build_header(DSU_port_info, payload)
     queue_packet(packet, addr, f"port disconnect slot {slot}")
 
 
 def handle_version_request(addr):
-    payload = struct.pack('<I H', net_cfg.DSU_version_response, net_cfg.PROTOCOL_VERSION)
-    packet = build_header(net_cfg.DSU_version_response, payload[4:])
+    payload = struct.pack('<I H', DSU_version_response, PROTOCOL_VERSION)
+    packet = build_header(DSU_version_response, payload[4:])
     info = net_cfg.active_clients.setdefault(addr, {'last_seen': time.time(), 'slots': set()})
     info['last_seen'] = time.time()
     queue_packet(packet, addr, "version response")
@@ -182,7 +189,7 @@ def handle_motor_request(addr, data):
         state.battery,
     )
     payload += struct.pack('<B', motor_count)
-    packet = build_header(net_cfg.DSU_motor_response, payload)
+    packet = build_header(DSU_motor_response, payload)
     queue_packet(packet, addr, f"motor count slot {slot}")
 
 
@@ -286,7 +293,7 @@ def send_input(
     payload += struct.pack('<2B2H', *touch2)
     payload += struct.pack('<Q', motion_ts)
     payload += struct.pack('<6f', *accelerometer, *gyroscope)
-    packet = build_header(net_cfg.DSU_button_response, payload)
+    packet = build_header(DSU_button_response, payload)
     queue_packet(packet, addr, f"input slot {slot}")
 
     prev_state = net_cfg.last_button_states.get(slot)
