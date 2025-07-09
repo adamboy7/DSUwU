@@ -5,8 +5,8 @@ import queue
 import threading
 import socket
 
-from . import net_config as net_cfg
-from .masks import button_mask_1, button_mask_2, touchpad_input
+from ..libraries import net_config as net_cfg
+from ..libraries.masks import button_mask_1, button_mask_2, touchpad_input
 
 
 def crc_packet(header: bytes, payload: bytes) -> int:

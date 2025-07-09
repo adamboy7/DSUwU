@@ -9,7 +9,7 @@ import threading
 
 from typing import Iterable
 
-from ..libraries import packet
+from . import dsu_packet as packet
 from ..libraries import net_config as net_cfg
 from ..libraries.masks import ControllerStateDict
 

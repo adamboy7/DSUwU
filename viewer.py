@@ -23,7 +23,7 @@ from libraries.net_config import (
     DSU_port_info,
 )
 import libraries.net_config as net_cfg
-from libraries.packet import crc_packet
+from protocols.dsu_packet import crc_packet
 
 def build_client_packet(msg_type: int, payload: bytes) -> bytes:
     msg = struct.pack("<I", msg_type) + payload

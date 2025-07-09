@@ -99,7 +99,8 @@ def parse_arguments():
 def start_server(port: int = net_cfg.UDP_port,
                  server_id_value: int | None = None,
                  scripts: list | None = None,
-                 start_slot: int = 0):
+                 start_slot: int = 0,
+                 protocol_cls: type[DSUProtocol] = DSUProtocol):
     """Launch the DSUwU - Server in a background thread.
 
     Returns a tuple of ``(controller_states, stop_event, thread)`` so callers
