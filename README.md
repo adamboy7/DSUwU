@@ -34,7 +34,7 @@ Passing `None` as the script path (any case) keeps the slot disconnected, withou
 creating any additional threads. Using `idle` instead (any case) marks the slot as connected and initializes a controller object, without
 creating any additional threads. Scripts can read and write to other slots (at a small risk of input race conditions), accessing a non-existent slot will automatically create it.
 
-Note that some clients may assume a slot 0 is the first slot, in which case a visual "off by one" quirk can happen. (I know, I'm probably doing it wrong. I'm a wierdo who wants slot 0 both availible and turned off :P)
+Note that some clients may assume a slot 0 is the first slot, in which case a visual "off by one" quirk can happen. (I know, I'm probably doing it wrong. I'm a wierdo who wants slot 0 both availible and disconnected :P)
 
 ## Running the viewer
 
