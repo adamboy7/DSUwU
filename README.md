@@ -22,7 +22,9 @@ If no options are provided the server listens on UDP port 26760 and uses the
 example controller scripts found in `demo/` to generate input. Custom scripts
 can be supplied per slot with the `--controllerN-script` arguments. Slot 0 is
 disabled by default but can be manually enabled with `--controller0-script`,
-which starts disconnected unless a script is specified. A
+which starts disconnected unless a script is specified. Because some clients
+assume slot 0 is the "first" slot, disabling it can make slot 1 appear as
+"Controller 2" or similar in their UIs. A
 `demo/pygame_controller.py` script is also provided for capturing real controller
 input using the `pygame` library, if for some reason you don't want to use DS4Windows ¯\_(ツ)_/¯
 
