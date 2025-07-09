@@ -22,9 +22,7 @@ If no options are provided the server listens on UDP port 26760 and uses the
 example controller scripts found in `demo/` to generate input. Custom scripts
 can be supplied per slot with the `--controllerN-script` arguments. Slot 0 is
 disabled by default but can be manually enabled with `--controller0-script`,
-which starts disconnected unless a script is specified. Because some clients
-assume slot 0 is the "first" slot, disabling it can make slot 1 appear as
-"Controller 2" or similar in their UIs. A
+which starts disconnected unless a script is specified. A
 `demo/pygame_controller.py` script is also provided for capturing real controller
 input using the `pygame` library, if for some reason you don't want to use DS4Windows ¯\_(ツ)_/¯
 
@@ -35,6 +33,8 @@ packet structures have a 1 byte limit. Most standard clients "tolerate" 8 contro
 Passing `None` as the script path (any case) keeps the slot disconnected, without
 creating any additional threads. Using `idle` instead (any case) marks the slot as connected and initializes a controller object, without
 creating any additional threads. Scripts can read and write to other slots (at a small risk of input race conditions), accessing a non-existent slot will automatically create it.
+
+Note that some clients may assume a slot 0 is the first slot, in which case a visual "off by one" quirk can happen. (I know, I'm probably doing it wrong. I'm a wierdo who wants slot 0 both availible and turned off :P)
 
 ## Running the viewer
 
