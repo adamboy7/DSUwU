@@ -20,18 +20,31 @@ def controller_loop(stop_event, controller_states, slot):
     """Capture gamepad input using pygame and update ``controller_states``."""
     pygame.init()
     pygame.joystick.init()
-    if pygame.joystick.get_count() == 0:
-        print("pygame controller script: no joystick detected")
-        return
 
-    if pygame.joystick.get_count() <= JOYSTICK_INDEX:
-        print(
-            f"pygame controller script: joystick {JOYSTICK_INDEX} not available"
-        )
-        return
+    js = None
+    while js is None and not stop_event.is_set():
+        count = pygame.joystick.get_count()
+        if count == 0:
+            print("pygame controller script: no joystick detected")
+        elif count <= JOYSTICK_INDEX:
+            print(
+                f"pygame controller script: joystick {JOYSTICK_INDEX} not available"
+            )
+        else:
+            js = pygame.joystick.Joystick(JOYSTICK_INDEX)
+            try:
+                js.init()
+                break
+            except pygame.error as exc:
+                print(f"pygame controller script: failed to init joystick: {exc}")
+                js = None
 
-    js = pygame.joystick.Joystick(JOYSTICK_INDEX)
-    js.init()
+        time.sleep(1)
+        pygame.joystick.quit()
+        pygame.joystick.init()
+
+    if js is None:
+        return
 
     while not stop_event.is_set():
         pygame.event.pump()
