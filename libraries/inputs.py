@@ -6,6 +6,7 @@ import time
 import os
 import sys
 from contextlib import nullcontext
+import importlib.abc
 
 from .masks import button_mask_1, button_mask_2
 from .masks import touchpad_input
@@ -133,7 +134,52 @@ def pulse_button_xor(frame, controller_states, slot, *buttons, **button_kwargs):
 
 
 _loaded_script_names: dict[str, str] = {}
+_script_paths: dict[str, str] = {}
 _script_counter = 0
+
+
+class _InputScriptLoader(importlib.abc.Loader):
+    """Loader used for dynamically imported controller scripts."""
+
+    def __init__(self, path: str) -> None:
+        self.path = path
+
+    def create_module(self, spec):
+        return None
+
+    def exec_module(self, module) -> None:
+        with open(self.path, "r", encoding="utf-8") as fh:
+            source = fh.read()
+        exec(compile(source, self.path, "exec"), module.__dict__)
+
+
+class _InputScriptFinder(importlib.abc.MetaPathFinder):
+    """Finder that resolves dynamic controller script modules."""
+
+    def find_spec(self, fullname, path, target=None):
+        script_path = _script_paths.get(fullname)
+        if script_path:
+            return importlib.util.spec_from_file_location(
+                fullname,
+                script_path,
+                loader=_InputScriptLoader(script_path),
+            )
+        return None
+
+
+def _sync_env() -> None:
+    os.environ["DSUWU_INPUT_SCRIPT_PATHS"] = json.dumps(_script_paths)
+
+
+_env = os.environ.get("DSUWU_INPUT_SCRIPT_PATHS")
+if _env:
+    try:
+        _script_paths.update(json.loads(_env))
+    except Exception:
+        pass
+
+if not any(isinstance(f, _InputScriptFinder) for f in sys.meta_path):
+    sys.meta_path.insert(0, _InputScriptFinder())
 
 
 def load_controller_loop(path: str):
@@ -151,16 +197,24 @@ def load_controller_loop(path: str):
     if mod_name is None:
         mod_name = f"input_script_{_script_counter}"
         _script_counter += 1
-        spec = importlib.util.spec_from_file_location(mod_name, abs_path)
+        spec = importlib.util.spec_from_file_location(
+            mod_name,
+            abs_path,
+            loader=_InputScriptLoader(abs_path),
+        )
         if spec is None or spec.loader is None:
             raise ImportError(f"cannot load controller script: {path!r}")
         module = importlib.util.module_from_spec(spec)
         try:
             spec.loader.exec_module(module)
         except Exception as exc:
-            raise ImportError(f"failed executing controller script {path!r}: {exc}") from exc
+            raise ImportError(
+                f"failed executing controller script {path!r}: {exc}"
+            ) from exc
         sys.modules[mod_name] = module
         _loaded_script_names[abs_path] = mod_name
+        _script_paths[mod_name] = abs_path
+        _sync_env()
     else:
         module = sys.modules[mod_name]
 
