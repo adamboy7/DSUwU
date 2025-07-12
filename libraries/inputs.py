@@ -3,6 +3,8 @@
 import importlib.util
 import json
 import time
+import os
+import sys
 from contextlib import nullcontext
 
 from .masks import button_mask_1, button_mask_2
@@ -130,19 +132,37 @@ def pulse_button_xor(frame, controller_states, slot, *buttons, **button_kwargs):
             state.touch_button = not state.touch_button
 
 
-def load_controller_loop(path):
-    """Load a ``controller_loop`` function from ``path``."""
-    spec = importlib.util.spec_from_file_location("input_script", path)
-    if spec is None:
-        raise FileNotFoundError(f"controller script not found: {path!r}")
-    if spec.loader is None:
-        raise ImportError(f"cannot load controller script: {path!r}")
+_loaded_script_names: dict[str, str] = {}
+_script_counter = 0
 
-    module = importlib.util.module_from_spec(spec)
-    try:
-        spec.loader.exec_module(module)
-    except Exception as exc:
-        raise ImportError(f"failed executing controller script {path!r}: {exc}") from exc
+
+def load_controller_loop(path: str):
+    """Load a ``controller_loop`` function from ``path``.
+
+    Each call assigns a unique module name so multiple scripts can be loaded
+    without clobbering each other.  This also ensures functions can be pickled
+    correctly when ``multiprocessing`` uses ``spawn`` mode (as on Windows).
+    """
+
+    global _script_counter
+
+    abs_path = os.path.abspath(path)
+    mod_name = _loaded_script_names.get(abs_path)
+    if mod_name is None:
+        mod_name = f"input_script_{_script_counter}"
+        _script_counter += 1
+        spec = importlib.util.spec_from_file_location(mod_name, abs_path)
+        if spec is None or spec.loader is None:
+            raise ImportError(f"cannot load controller script: {path!r}")
+        module = importlib.util.module_from_spec(spec)
+        try:
+            spec.loader.exec_module(module)
+        except Exception as exc:
+            raise ImportError(f"failed executing controller script {path!r}: {exc}") from exc
+        sys.modules[mod_name] = module
+        _loaded_script_names[abs_path] = mod_name
+    else:
+        module = sys.modules[mod_name]
 
     if not hasattr(module, "controller_loop"):
         raise AttributeError(f"{path!r} does not define 'controller_loop'")
