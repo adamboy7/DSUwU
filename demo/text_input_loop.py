@@ -3,6 +3,7 @@ import threading
 from tkinter import (
     END,
     Entry,
+    Frame,
     Label,
     Scrollbar,
     StringVar,
@@ -23,17 +24,24 @@ def controller_loop(stop_event, controller_states, slot):
 
     root = Tk()
     root.title(f"Text input controller (slot {slot})")
-    root.minsize(320, 200)
+    root.minsize(400, 250)
 
     entry_var = StringVar()
     history: list[str] = []
     history_index = 0
 
-    log = Text(root, height=8, width=40, state="disabled", wrap="none")
-    scrollbar = Scrollbar(root, command=log.yview)
+    frame = Frame(root)
+    frame.pack(side="top", fill="both", expand=True, padx=10, pady=(5, 0))
+
+    log = Text(frame, height=8, state="disabled", wrap="none")
+    scrollbar = Scrollbar(frame, command=log.yview)
     log.configure(yscrollcommand=scrollbar.set)
-    log.pack(side="left", fill="both", expand=True, padx=10, pady=(5, 0))
-    scrollbar.pack(side="right", fill="y", pady=(5, 0))
+
+    log.grid(row=0, column=0, sticky="nsew")
+    scrollbar.grid(row=0, column=1, sticky="ns")
+
+    frame.columnconfigure(0, weight=1)
+    frame.rowconfigure(0, weight=1)
 
     def _append_log(msg: str) -> None:
         log.configure(state="normal")
@@ -65,9 +73,12 @@ def controller_loop(stop_event, controller_states, slot):
         threading.Thread(target=_pulse, daemon=True).start()
         return "break"
 
-    Label(root, text="Enter a button name or 'quit'").pack(padx=10, pady=5)
-    entry = Entry(root, textvariable=entry_var)
-    entry.pack(padx=10, pady=5, fill="x")
+    bottom = Frame(root)
+    bottom.pack(side="bottom", fill="x", padx=10, pady=5)
+
+    Label(bottom, text="Enter a button name or 'quit'").pack(anchor="w")
+    entry = Entry(bottom, textvariable=entry_var)
+    entry.pack(fill="x", pady=(2, 0))
     entry.bind("<Return>", _handle_entry)
 
     def _show_prev(event):
