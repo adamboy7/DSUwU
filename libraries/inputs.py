@@ -171,15 +171,22 @@ def _sync_env() -> None:
     os.environ["DSUWU_INPUT_SCRIPT_PATHS"] = json.dumps(_script_paths)
 
 
-_env = os.environ.get("DSUWU_INPUT_SCRIPT_PATHS")
-if _env:
-    try:
-        _script_paths.update(json.loads(_env))
-    except Exception:
-        pass
+def register_input_scripts_from_env() -> None:
+    """Load dynamic script mappings from the environment and register finder."""
 
-if not any(isinstance(f, _InputScriptFinder) for f in sys.meta_path):
-    sys.meta_path.insert(0, _InputScriptFinder())
+    env = os.environ.get("DSUWU_INPUT_SCRIPT_PATHS")
+    if env:
+        try:
+            _script_paths.update(json.loads(env))
+        except Exception:
+            pass
+
+    if not any(isinstance(f, _InputScriptFinder) for f in sys.meta_path):
+        sys.meta_path.insert(0, _InputScriptFinder())
+
+
+# Register mappings at import time so the current process can resolve scripts
+register_input_scripts_from_env()
 
 
 def load_controller_loop(path: str):
@@ -215,6 +222,8 @@ def load_controller_loop(path: str):
         _loaded_script_names[abs_path] = mod_name
         _script_paths[mod_name] = abs_path
         _sync_env()
+        # Ensure child processes can resolve this script on import
+        register_input_scripts_from_env()
     else:
         module = sys.modules[mod_name]
 
