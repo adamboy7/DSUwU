@@ -36,27 +36,37 @@ _MASK2_BUTTONS = {
     "square",
 }
 
+# Buttons not associated with either mask
+_MISC_BUTTONS = {"home", "touch"}
+
+# Exported set of all valid button names
+VALID_BUTTONS = _MASK1_BUTTONS | _MASK2_BUTTONS | _MISC_BUTTONS
+
 
 def pulse_button(frame, controller_states, slot, **button_kwargs):
     """Apply a pulsing button mask to ``controller_states``.
 
     Supports all buttons from ``button_mask_1`` and ``button_mask_2`` as well as
-    the ``home`` button.
+    the ``home`` and ``touch`` buttons.
     """
     state = controller_states[slot]
     mask1_args = {k: button_kwargs.get(k, False) for k in _MASK1_BUTTONS}
     mask2_args = {k: button_kwargs.get(k, False) for k in _MASK2_BUTTONS}
     home = bool(button_kwargs.get("home", False))
+    touch = bool(button_kwargs.get("touch", False))
 
     if frame % cycle_duration < press_duration:
         state.buttons1 = button_mask_1(**mask1_args)
         state.buttons2 = button_mask_2(**mask2_args)
         state.home = home
+        state.touch_button = touch
     else:
         state.buttons1 = button_mask_1()
         state.buttons2 = button_mask_2()
         if home:
             state.home = False
+        if touch:
+            state.touch_button = False
 
 
 def pulse_button_xor(frame, controller_states, slot, *buttons, **button_kwargs):
@@ -66,11 +76,12 @@ def pulse_button_xor(frame, controller_states, slot, *buttons, **button_kwargs):
     arguments are also accepted for backwards compatibility, any truthy
     value enables the corresponding button. Falsy values are ignored.
     Supports all buttons from ``button_mask_1`` and ``button_mask_2`` as well as
-    the ``home`` button.
+    the ``home`` and ``touch`` buttons.
     """
     mask1_args: dict[str, bool] = {}
     mask2_args: dict[str, bool] = {}
     home_toggle = False
+    touch_toggle = False
 
     for b in buttons:
         if b in _MASK1_BUTTONS:
@@ -79,6 +90,8 @@ def pulse_button_xor(frame, controller_states, slot, *buttons, **button_kwargs):
             mask2_args[b] = True
         elif b == "home":
             home_toggle = True
+        elif b == "touch":
+            touch_toggle = True
 
     for k, v in button_kwargs.items():
         if not v:
@@ -89,6 +102,8 @@ def pulse_button_xor(frame, controller_states, slot, *buttons, **button_kwargs):
             mask2_args[k] = True
         elif k == "home":
             home_toggle = True
+        elif k == "touch":
+            touch_toggle = True
 
     mask1 = button_mask_1(**mask1_args)
     mask2 = button_mask_2(**mask2_args)
@@ -101,6 +116,8 @@ def pulse_button_xor(frame, controller_states, slot, *buttons, **button_kwargs):
             state.buttons2 ^= mask2
         if home_toggle:
             state.home = not state.home
+        if touch_toggle:
+            state.touch_button = not state.touch_button
     if frame % cycle_duration == press_duration:
         state = controller_states[slot]
         if mask1:
@@ -109,6 +126,8 @@ def pulse_button_xor(frame, controller_states, slot, *buttons, **button_kwargs):
             state.buttons2 ^= mask2
         if home_toggle:
             state.home = not state.home
+        if touch_toggle:
+            state.touch_button = not state.touch_button
 
 
 def load_controller_loop(path):
