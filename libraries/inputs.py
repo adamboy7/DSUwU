@@ -5,7 +5,7 @@ import json
 import time
 from contextlib import nullcontext
 
-from .masks import button_mask_2
+from .masks import button_mask_1, button_mask_2
 from .masks import touchpad_input
 from . import net_config as net_cfg
 
@@ -13,13 +13,50 @@ press_duration = 3
 cycle_duration = 60
 frame_delay = 1 / 60.0
 
+# Button names grouped by mask
+_MASK1_BUTTONS = {
+    "share",
+    "l3",
+    "r3",
+    "options",
+    "up",
+    "right",
+    "down",
+    "left",
+}
+
+_MASK2_BUTTONS = {
+    "l2",
+    "r2",
+    "l1",
+    "r1",
+    "triangle",
+    "circle",
+    "cross",
+    "square",
+}
+
 
 def pulse_button(frame, controller_states, slot, **button_kwargs):
-    """Apply a pulsing button mask to ``controller_states``."""
+    """Apply a pulsing button mask to ``controller_states``.
+
+    Supports all buttons from ``button_mask_1`` and ``button_mask_2`` as well as
+    the ``home`` button.
+    """
+    state = controller_states[slot]
+    mask1_args = {k: button_kwargs.get(k, False) for k in _MASK1_BUTTONS}
+    mask2_args = {k: button_kwargs.get(k, False) for k in _MASK2_BUTTONS}
+    home = bool(button_kwargs.get("home", False))
+
     if frame % cycle_duration < press_duration:
-        controller_states[slot].buttons2 = button_mask_2(**button_kwargs)
+        state.buttons1 = button_mask_1(**mask1_args)
+        state.buttons2 = button_mask_2(**mask2_args)
+        state.home = home
     else:
-        controller_states[slot].buttons2 = button_mask_2()
+        state.buttons1 = button_mask_1()
+        state.buttons2 = button_mask_2()
+        if home:
+            state.home = False
 
 
 def pulse_button_xor(frame, controller_states, slot, *buttons, **button_kwargs):
@@ -28,14 +65,50 @@ def pulse_button_xor(frame, controller_states, slot, *buttons, **button_kwargs):
     ``buttons`` may contain button names as positional arguments. Keyword
     arguments are also accepted for backwards compatibility, any truthy
     value enables the corresponding button. Falsy values are ignored.
+    Supports all buttons from ``button_mask_1`` and ``button_mask_2`` as well as
+    the ``home`` button.
     """
-    mask_args = {b: True for b in buttons}
-    mask_args.update({k: bool(v) for k, v in button_kwargs.items() if v})
-    mask = button_mask_2(**mask_args)
+    mask1_args: dict[str, bool] = {}
+    mask2_args: dict[str, bool] = {}
+    home_toggle = False
+
+    for b in buttons:
+        if b in _MASK1_BUTTONS:
+            mask1_args[b] = True
+        elif b in _MASK2_BUTTONS:
+            mask2_args[b] = True
+        elif b == "home":
+            home_toggle = True
+
+    for k, v in button_kwargs.items():
+        if not v:
+            continue
+        if k in _MASK1_BUTTONS:
+            mask1_args[k] = True
+        elif k in _MASK2_BUTTONS:
+            mask2_args[k] = True
+        elif k == "home":
+            home_toggle = True
+
+    mask1 = button_mask_1(**mask1_args)
+    mask2 = button_mask_2(**mask2_args)
+
     if frame % cycle_duration == 0:
-        controller_states[slot].buttons2 ^= mask
+        state = controller_states[slot]
+        if mask1:
+            state.buttons1 ^= mask1
+        if mask2:
+            state.buttons2 ^= mask2
+        if home_toggle:
+            state.home = not state.home
     if frame % cycle_duration == press_duration:
-        controller_states[slot].buttons2 ^= mask
+        state = controller_states[slot]
+        if mask1:
+            state.buttons1 ^= mask1
+        if mask2:
+            state.buttons2 ^= mask2
+        if home_toggle:
+            state.home = not state.home
 
 
 def load_controller_loop(path):

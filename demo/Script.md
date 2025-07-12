@@ -11,6 +11,10 @@ It is recommended you import `time`, `libraries.inputs`, and `libraries.masks`, 
 
 **Push a button:** `pulse_button(frame, controller_states, slot, **button_kwargs)`, **frame** being how many 1/60ths of a second you want to press the button, **controller_states** being the server's controller dictionary, **slot** being the controller slot number you want to update, and **button_kwargs**. Defaults back to unpressed after finishing.
 Overwrites the entire controller state to match the exact buttons you describe. If you just say `circle=True` and nothing else, it will unpress everything else.
+Both `pulse_button` and `pulse_button_xor` accept button names from either mask
+(``share``/``l3``/``r3``/``options``/``up``/``right``/``down``/``left`` and
+``l2``/``r2``/``l1``/``r1``/``triangle``/``circle``/``cross``/``square``) as
+well as ``home``.
 
 **Toggle a button:** `pulse_button_xor(frame, controller_states, slot, *buttons)`, **frame** being how many 1/60ths of a second you want to press the button, **controller_states** being the server's controller dictionary, **slot** being the controller slot number you want to update, and ``*buttons`` representing one or more button names (e.g. ``"circle"``).
 Allows you to selectively write button states without modifying other buttons that share a "button mask". Useful if multiple functions or threads are sharing a slot. Keyword arguments are still accepted but ``False`` values are ignored.
