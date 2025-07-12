@@ -26,6 +26,9 @@ def controller_loop(stop_event, controller_states, slot):
     root.title(f"Text input controller (slot {slot})")
     root.minsize(400, 250)
 
+    hold_frames = press_duration
+    active_slot = slot
+
     entry_var = StringVar()
     history: list[str] = []
     history_index = 0
@@ -50,24 +53,50 @@ def controller_loop(stop_event, controller_states, slot):
         log.configure(state="disabled")
 
     def _handle_entry(event=None):
-        nonlocal history_index
+        nonlocal history_index, hold_frames, active_slot
         value = entry_var.get().strip().lower()
         entry_var.set("")
         history.append(value)
         history_index = len(history)
         _append_log(f"> {value}")
-        if value in ("quit", "exit"):
+
+        parts = value.split()
+        if not parts:
+            return "break"
+        cmd = parts[0]
+
+        if cmd in ("quit", "exit"):
             root.destroy()
             return "break"
-        if value not in VALID_BUTTONS:
-            _append_log(f"Unknown button: {value}")
+
+        if cmd == "/frames":
+            if len(parts) == 2 and parts[1].isdigit():
+                hold_frames = int(parts[1])
+                _append_log(f"Frame hold set to {hold_frames}")
+            else:
+                _append_log("Usage: /frames NUMBER")
             return "break"
 
+        if cmd == "/slot":
+            if len(parts) == 2 and parts[1].isdigit():
+                active_slot = int(parts[1])
+                root.title(f"Text input controller (slot {active_slot})")
+                _append_log(f"Using slot {active_slot}")
+            else:
+                _append_log("Usage: /slot NUMBER")
+            return "break"
+
+        if cmd not in VALID_BUTTONS:
+            _append_log(f"Unknown button: {cmd}")
+            return "break"
+
+        button = cmd
+
         def _pulse() -> None:
-            for i in range(press_duration + 1):
+            for i in range(hold_frames + 1):
                 if stop_event.is_set():
                     break
-                pulse_button(i, controller_states, slot, **{value: True})
+                pulse_button(i, controller_states, active_slot, **{button: True})
                 time.sleep(frame_delay)
 
         threading.Thread(target=_pulse, daemon=True).start()
