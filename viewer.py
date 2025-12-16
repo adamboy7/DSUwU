@@ -350,6 +350,7 @@ class ViewerUI:
         self.root.title("DSOwO - Viewer")
         self.capture_menu_index = None
         self.motion_menu_index = None
+        self.sysbot_menu_index = None
         self._build_menu()
         self.mode = "tabs"
         self.notebook = ttk.Notebook(self.root)
@@ -361,7 +362,6 @@ class ViewerUI:
         self.capture = InputCapture(self.client)
         self.motion_capture = MotionCapture(self.client)
         self.sys_botbase = SysBotbaseBridge(self.client)
-        self.sysbot_menu_index = None
         self.parser_win = None
         # Initialize tabs based on discovered slots. If slot 0 is present and
         # there are fewer than 5 slots total, include it; otherwise start at 1.
