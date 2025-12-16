@@ -362,6 +362,7 @@ class ViewerUI:
         self.capture = InputCapture(self.client)
         self.motion_capture = MotionCapture(self.client)
         self.sys_botbase = SysBotbaseBridge(self.client)
+        self._sysbot_menu_state = self.sys_botbase.active
         self.parser_win = None
         # Initialize tabs based on discovered slots. If slot 0 is present and
         # there are fewer than 5 slots total, include it; otherwise start at 1.
@@ -510,12 +511,14 @@ class ViewerUI:
         self.tools_menu.entryconfigure(self.sysbot_menu_index,
                                        label="Stop Sys-Botbase",
                                        command=self._stop_sysbot)
+        self._sysbot_menu_state = True
 
     def _stop_sysbot(self):
         self.sys_botbase.stop()
         self.tools_menu.entryconfigure(self.sysbot_menu_index,
                                        label="Sys-Botbase",
                                        command=self._start_sysbot)
+        self._sysbot_menu_state = False
 
     def _change_port(self):
         port = simpledialog.askinteger(
@@ -538,10 +541,18 @@ class ViewerUI:
             self.client.restart(server_ip=ip)
 
     def update(self):
-        if not self.sys_botbase.active and self.sysbot_menu_index is not None:
-            self.tools_menu.entryconfigure(self.sysbot_menu_index,
-                                           label="Sys-Botbase",
-                                           command=self._start_sysbot)
+        if self.sysbot_menu_index is not None:
+            sysbot_active = self.sys_botbase.active
+            if sysbot_active != self._sysbot_menu_state:
+                if sysbot_active:
+                    self.tools_menu.entryconfigure(self.sysbot_menu_index,
+                                                   label="Stop Sys-Botbase",
+                                                   command=self._stop_sysbot)
+                else:
+                    self.tools_menu.entryconfigure(self.sysbot_menu_index,
+                                                   label="Sys-Botbase",
+                                                   command=self._start_sysbot)
+                self._sysbot_menu_state = sysbot_active
         slots = self.client.available_slots
         if self.mode == "tabs":
             if len(slots) > 4:
