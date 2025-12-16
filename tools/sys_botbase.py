@@ -208,6 +208,8 @@ class SysBotbaseBridge:
         for name, pressed in state.get("buttons", {}).items():
             if pressed and name in self.BUTTON_MAP:
                 mapped.add(self.BUTTON_MAP[name])
+        if state.get("home"):
+            mapped.add("HOME")
         return mapped
 
     def _sync_buttons(self, pressed: set[str]) -> None:
