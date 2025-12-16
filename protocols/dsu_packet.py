@@ -176,6 +176,9 @@ def handle_motor_request(addr, data):
     if len(data) < 28:
         return
     slot = data[20]
+    if slot >= net_cfg.soft_slot_limit:
+        print("Warning: slots above 255 cannot be reported to the client")
+        return
     info = net_cfg.active_clients.setdefault(addr, {'last_seen': time.time(), 'slots': set()})
     info['last_seen'] = time.time()
     info['slots'].add(slot)
@@ -318,4 +321,3 @@ def send_input(
             f"buttons1=0x{buttons1:02X} buttons2=0x{buttons2:02X}"
         )
         net_cfg.last_button_states[slot] = current_state
-
