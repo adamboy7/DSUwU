@@ -1,5 +1,7 @@
 import logging
 import socket
+import threading
+import time
 from typing import Callable
 
 __all__ = ["SysBotbaseBridge"]
@@ -47,13 +49,24 @@ class SysBotbaseBridge:
         self._last_sticks: tuple[int, int, int, int] | None = None
         self._prev_callback: Callable | None = None
         self._callback = None
+        self._max_rate_hz: float | None = None
+        self._poll_interval: float | None = None
+        self._stop_event: threading.Event | None = None
+        self._pending_event: threading.Event | None = None
+        self._pending_state: dict | None = None
+        self._pending_dirty: bool = False
+        self._send_thread: threading.Thread | None = None
 
     @property
     def active(self) -> bool:
         return self.sock is not None
 
-    def start(self, ip: str, slot: int) -> bool:
-        """Connect to sys-botbase at ``ip`` and forward updates from ``slot``."""
+    def start(self, ip: str, slot: int, max_rate_hz: float | None = None) -> bool:
+        """Connect to sys-botbase at ``ip`` and forward updates from ``slot``.
+
+        When ``max_rate_hz`` is provided, outgoing packets are throttled to the
+        requested rate to avoid flooding sys-botbase with rapid stick updates.
+        """
         self.stop()
         try:
             sock = socket.create_connection((ip, self.DEFAULT_PORT), timeout=1.0)
@@ -69,6 +82,15 @@ class SysBotbaseBridge:
         self._last_buttons.clear()
         self._last_sticks = None
         self._prev_callback = self.client.state_callback
+        self._max_rate_hz = max_rate_hz if max_rate_hz and max_rate_hz > 0 else None
+        self._poll_interval = (1.0 / self._max_rate_hz) if self._max_rate_hz else None
+        if self._max_rate_hz:
+            self._stop_event = threading.Event()
+            self._pending_event = threading.Event()
+            self._pending_state = None
+            self._pending_dirty = False
+            self._send_thread = threading.Thread(target=self._send_loop, daemon=True)
+            self._send_thread.start()
 
         def callback(slot_id: int, state: dict) -> None:
             if self._prev_callback is not None:
@@ -78,12 +100,13 @@ class SysBotbaseBridge:
                     logging.error("State callback failed: %s", exc)
             if slot_id != self.slot or not self.active:
                 return
-            try:
-                self._forward_state(state)
-            except OSError as exc:
-                logging.error("Failed to forward state to sys-botbase at %s: %s",
-                              self.target_ip, exc)
-                self.stop()
+            if self._max_rate_hz:
+                self._pending_state = state
+                self._pending_dirty = True
+                if self._pending_event is not None:
+                    self._pending_event.set()
+            else:
+                self._dispatch_state(state)
 
         self._callback = callback
         self.client.state_callback = self._callback
@@ -91,11 +114,29 @@ class SysBotbaseBridge:
 
     def stop(self) -> None:
         """Close the sys-botbase connection and restore callbacks."""
+        if self._stop_event is not None:
+            self._stop_event.set()
+        if self._pending_event is not None:
+            self._pending_event.set()
+        if self._send_thread is not None and threading.current_thread() is not self._send_thread:
+            self._send_thread.join(timeout=0.5)
+        self._send_thread = None
+        self._stop_event = None
+        self._pending_event = None
+        self._pending_state = None
+        self._pending_dirty = False
+        self._max_rate_hz = None
+        self._poll_interval = None
+
         if self.sock is not None:
             try:
                 self._send_neutral_state()
             except OSError as exc:
                 logging.warning("Failed to send neutral state to sys-botbase: %s", exc)
+            try:
+                self._send_command("detachController")
+            except OSError as exc:
+                logging.warning("Failed to detach controller from sys-botbase: %s", exc)
             try:
                 self.sock.close()
             except OSError:
@@ -109,6 +150,36 @@ class SysBotbaseBridge:
             self.client.state_callback = self._prev_callback
         self._prev_callback = None
         self._callback = None
+
+    def _dispatch_state(self, state: dict) -> None:
+        try:
+            self._forward_state(state)
+        except OSError as exc:
+            logging.error("Failed to forward state to sys-botbase at %s: %s",
+                          self.target_ip, exc)
+            self.stop()
+
+    def _send_loop(self) -> None:
+        stop_event = self._stop_event
+        pending_event = self._pending_event
+        if self._poll_interval is None or stop_event is None or pending_event is None:
+            return
+        next_send = time.monotonic()
+        while not stop_event.is_set():
+            wait_time = max(0.0, next_send - time.monotonic())
+            pending_event.wait(wait_time)
+            pending_event.clear()
+            if stop_event.is_set():
+                break
+            now = time.monotonic()
+            if now < next_send:
+                continue
+            if not self._pending_dirty or self._pending_state is None:
+                next_send = now + self._poll_interval
+                continue
+            self._dispatch_state(self._pending_state)
+            self._pending_dirty = False
+            next_send = now + self._poll_interval
 
     def _forward_state(self, state: dict) -> None:
         pressed = self._map_buttons(state)
