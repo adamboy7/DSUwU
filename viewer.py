@@ -5,12 +5,13 @@ import threading
 import logging
 from tkinter import Tk, Label, StringVar
 from tkinter import ttk
-from tkinter import Menu, simpledialog, filedialog
+from tkinter import Menu, simpledialog, filedialog, messagebox
 
 from tools.rebroadcast import Rebroadcaster
 from tools.debug_packet import PacketParserWindow, format_state, parse_port_info
 from tools.input_capture import InputCapture
 from tools.motion_capture import MotionCapture
+from tools.sys_botbase import SysBotbaseBridge
 
 from libraries.net_config import UDP_port
 import libraries.net_config as net_cfg
@@ -359,6 +360,8 @@ class ViewerUI:
         self.rebroadcaster = Rebroadcaster()
         self.capture = InputCapture(self.client)
         self.motion_capture = MotionCapture(self.client)
+        self.sys_botbase = SysBotbaseBridge(self.client)
+        self.sysbot_menu_index = None
         self.parser_win = None
         # Initialize tabs based on discovered slots. If slot 0 is present and
         # there are fewer than 5 slots total, include it; otherwise start at 1.
@@ -383,6 +386,8 @@ class ViewerUI:
         self.options_menu.add_command(label="Remote Connection", command=self._change_remote)
         self.tools_menu.add_command(label="Rebroadcast", command=self._start_rebroadcast)
         self.tools_menu.add_command(label="Packet Parser", command=self._open_parser)
+        self.tools_menu.add_command(label="Sys-Botbase", command=self._start_sysbot)
+        self.sysbot_menu_index = self.tools_menu.index("end")
         self.tools_menu.add_command(label="Start input capture", command=self._start_capture)
         self.capture_menu_index = self.tools_menu.index("end")
         self.tools_menu.add_command(label="Start motion capture", command=self._start_motion_capture)
@@ -483,6 +488,35 @@ class ViewerUI:
                                        label="Start motion capture",
                                        command=self._start_motion_capture)
 
+    def _start_sysbot(self):
+        ip = simpledialog.askstring(
+            "Sys-Botbase",
+            "Enter Sys-Botbase IP:",
+            parent=self.root,
+        )
+        if not ip:
+            return
+        slot = simpledialog.askinteger(
+            "Sys-Botbase",
+            "Enter controller slot to mirror:",
+            parent=self.root,
+            minvalue=0,
+        )
+        if slot is None:
+            return
+        if not self.sys_botbase.start(ip, slot):
+            messagebox.showerror("Sys-Botbase", "Failed to connect to sys-botbase server.")
+            return
+        self.tools_menu.entryconfigure(self.sysbot_menu_index,
+                                       label="Stop Sys-Botbase",
+                                       command=self._stop_sysbot)
+
+    def _stop_sysbot(self):
+        self.sys_botbase.stop()
+        self.tools_menu.entryconfigure(self.sysbot_menu_index,
+                                       label="Sys-Botbase",
+                                       command=self._start_sysbot)
+
     def _change_port(self):
         port = simpledialog.askinteger(
             "Port",
@@ -504,6 +538,12 @@ class ViewerUI:
             self.client.restart(server_ip=ip)
 
     def update(self):
+        if not self.sys_botbase.active:
+            current_label = self.tools_menu.entrycget(self.sysbot_menu_index, "label")
+            if current_label != "Sys-Botbase":
+                self.tools_menu.entryconfigure(self.sysbot_menu_index,
+                                               label="Sys-Botbase",
+                                               command=self._start_sysbot)
         slots = self.client.available_slots
         if self.mode == "tabs":
             if len(slots) > 4:
@@ -533,6 +573,7 @@ class ViewerUI:
             self.rebroadcaster.stop()
             self.capture.stop_capture()
             self.motion_capture.stop_capture()
+            self.sys_botbase.stop()
 
 
 def main(server_ip: str = "127.0.0.1"):
