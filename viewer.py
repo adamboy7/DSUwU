@@ -3,14 +3,15 @@ import socket
 import time
 import threading
 import logging
-from tkinter import Tk, Label, StringVar
+from tkinter import Tk, Label, StringVar, BooleanVar
 from tkinter import ttk
-from tkinter import Menu, simpledialog, filedialog
+from tkinter import Menu, simpledialog, filedialog, messagebox
 
 from tools.rebroadcast import Rebroadcaster
 from tools.debug_packet import PacketParserWindow, format_state, parse_port_info
 from tools.input_capture import InputCapture
 from tools.motion_capture import MotionCapture
+from tools.sys_botbase import SysBotbaseBridge
 
 from libraries.net_config import UDP_port
 import libraries.net_config as net_cfg
@@ -25,12 +26,13 @@ from protocols.dsu_constants import (
 )
 from protocols.dsu_packet import crc_packet
 
-def build_client_packet(msg_type: int, payload: bytes) -> bytes:
+def build_client_packet(msg_type: int, payload: bytes, protocol_version: int | None = None) -> bytes:
+    version = PROTOCOL_VERSION if protocol_version is None else protocol_version
     msg = struct.pack("<I", msg_type) + payload
     length = len(msg)
-    header = struct.pack("<4sHHII", b"DSUC", PROTOCOL_VERSION, length, 0, 0)
+    header = struct.pack("<4sHHII", b"DSUC", version, length, 0, 0)
     crc = crc_packet(header, msg)
-    header = struct.pack("<4sHHII", b"DSUC", PROTOCOL_VERSION, length, crc, 0)
+    header = struct.pack("<4sHHII", b"DSUC", version, length, crc, 0)
     return header + msg
 
 
@@ -65,6 +67,7 @@ def decode_touch(raw: tuple) -> dict:
 def parse_button_response(data: bytes):
     if len(data) < 20:
         return None
+    protocol_version, = struct.unpack_from("<H", data, 4)
     msg_type, = struct.unpack_from("<I", data, 16)
     if msg_type != DSU_button_response:
         return None
@@ -91,13 +94,13 @@ def parse_button_response(data: bytes):
         home,
         touch_button,
         ls_x,
-        ls_y,
+        ls_y_inverted,
         rs_x,
-        rs_y,
-        dpad_up,
-        dpad_right,
-        dpad_down,
+        rs_y_inverted,
         dpad_left,
+        dpad_down,
+        dpad_right,
+        dpad_up,
         tri,
         cir,
         cro,
@@ -131,11 +134,13 @@ def parse_button_response(data: bytes):
     if len(payload) < offset + struct.calcsize(accel_gyro_fmt):
         return None
     accel_gyro = struct.unpack_from("<6f", payload, offset)
+    accel_x, accel_y, accel_z, gyro_x, gyro_y, gyro_z = accel_gyro
 
     return {
         "slot": slot,
         "mac": ":".join(f"{b:02X}" for b in mac),
         "packet": packet_num,
+        "protocol_version": protocol_version,
         "connected": bool(connected),
         "connection_type": connection_type,
         "battery": battery,
@@ -144,8 +149,8 @@ def parse_button_response(data: bytes):
         "buttons": decode_buttons(buttons1, buttons2),
         "home": bool(home),
         "touch_button": bool(touch_button),
-        "ls": (ls_x, ls_y),
-        "rs": (rs_x, rs_y),
+        "ls": (ls_x, 255 - ls_y_inverted),
+        "rs": (rs_x, 255 - rs_y_inverted),
         "dpad": (dpad_up, dpad_right, dpad_down, dpad_left),
         "face": (tri, cir, cro, sqr),
         "analog_r1": analog_r1,
@@ -155,8 +160,8 @@ def parse_button_response(data: bytes):
         "touch1": touch1,
         "touch2": touch2,
         "motion_ts": motion_ts,
-        "accel": accel_gyro[:3],
-        "gyro": accel_gyro[3:],
+        "accel": (accel_x, accel_y, -accel_z),
+        "gyro": (gyro_x, gyro_y, gyro_z),
     }
 
 
@@ -175,6 +180,7 @@ class DSUClient:
         self.last_request = 0.0
         self.server_states = None
         self.state_callback = None
+        self.protocol_version = PROTOCOL_VERSION
         # Start requesting slots beginning at 1. Slot 0 will be discovered
         # automatically if the server reports it.
         self.request_slots = set(range(1, 5))
@@ -217,7 +223,10 @@ class DSUClient:
 
     def _send(self, msg_type: int, payload: bytes = b""):
         try:
-            self.sock.sendto(build_client_packet(msg_type, payload), self.addr)
+            self.sock.sendto(
+                build_client_packet(msg_type, payload, self.protocol_version),
+                self.addr,
+            )
         except OSError as exc:
             logging.error("Failed to send DSU packet: %s", exc)
 
@@ -273,13 +282,29 @@ class DSUClient:
         while self.running:
             now = time.time()
             if now - self.last_request > 1.0:
+                all_payload = struct.pack("<BB6s", 0, 0, b"\x00" * 6)
+                self._send(DSU_button_request, all_payload)
                 for slot in sorted(self.request_slots):
-                    pld = struct.pack("B", slot) + b"\x00" * 7
-                    self._send(DSU_button_request, pld)
+                    reg_flags = 0x01
+                    mac_bytes = b"\x00" * 6
+                    state = self.states.get(slot)
+                    if state is not None:
+                        try:
+                            mac_bytes = bytes.fromhex(state["mac"].replace(":", ""))
+                            reg_flags |= 0x02
+                        except ValueError:
+                            mac_bytes = b"\x00" * 6
+                    payload = struct.pack("<BB6s", reg_flags, slot, mac_bytes)
+                    self._send(DSU_button_request, payload)
                 self.last_request = now
 
             try:
                 data, _ = self.sock.recvfrom(2048)
+                try:
+                    header_version, = struct.unpack_from("<H", data, 4)
+                    self.protocol_version = min(header_version, PROTOCOL_VERSION)
+                except struct.error:
+                    pass
                 msg_type, = struct.unpack_from("<I", data, 16)
                 if msg_type == DSU_button_response:
                     try:
@@ -318,6 +343,121 @@ class DSUClient:
 
 
 
+class SysBotDialog(simpledialog.Dialog):
+    """Combined dialog for configuring Sys-Botbase forwarding."""
+
+    def __init__(self, parent, initial_ip: str | None, slots: list[int] | tuple[int, ...],
+                 initial_rate: float | None, initial_smoothing: bool,
+                 initial_deadzone: int | None):
+        self.initial_ip = initial_ip or ""
+        self.initial_rate = initial_rate
+        self.initial_smoothing = initial_smoothing
+        self.initial_deadzone = initial_deadzone
+        self.slots = slots
+        self.result: tuple[str, int, float | None, bool, int | None] | None = None
+        super().__init__(parent, "Sys-Botbase")
+
+    def body(self, master):
+        ttk.Label(master, text="Sys-Botbase IP:").grid(row=0, column=0, sticky="w", padx=4, pady=4)
+        self.ip_entry = ttk.Entry(master)
+        self.ip_entry.insert(0, self.initial_ip)
+        self.ip_entry.grid(row=0, column=1, sticky="ew", padx=4, pady=4)
+
+        ttk.Label(master, text="Controller slot:").grid(row=1, column=0, sticky="w", padx=4, pady=4)
+        self.slot_var = StringVar()
+        self.slot_combo = ttk.Combobox(
+            master,
+            textvariable=self.slot_var,
+            values=[str(s) for s in self.slots],
+        )
+        if self.slots:
+            self.slot_var.set(str(self.slots[0]))
+        self.slot_combo.grid(row=1, column=1, sticky="ew", padx=4, pady=4)
+
+        ttk.Label(master, text="Max packet rate (Hz, optional):").grid(
+            row=2, column=0, sticky="w", padx=4, pady=4
+        )
+        self.rate_entry = ttk.Entry(master)
+        if self.initial_rate:
+            self.rate_entry.insert(0, str(self.initial_rate))
+        self.rate_entry.grid(row=2, column=1, sticky="ew", padx=4, pady=4)
+
+        self.smoothing_var = BooleanVar(value=self.initial_smoothing)
+        ttk.Checkbutton(
+            master,
+            text="Enable smoothing (ignore <3 unit stick changes)",
+            variable=self.smoothing_var,
+        ).grid(row=3, column=0, columnspan=2, sticky="w", padx=4, pady=4)
+
+        ttk.Label(master, text="Deadzone (0-255, optional):").grid(
+            row=4, column=0, sticky="w", padx=4, pady=4
+        )
+        self.deadzone_entry = ttk.Entry(master)
+        if self.initial_deadzone is not None:
+            self.deadzone_entry.insert(0, str(self.initial_deadzone))
+        self.deadzone_entry.grid(row=4, column=1, sticky="ew", padx=4, pady=4)
+
+        master.columnconfigure(1, weight=1)
+        return self.ip_entry
+
+    def validate(self) -> bool:
+        ip = self.ip_entry.get().strip()
+        slot_raw = self.slot_var.get().strip()
+        rate_raw = self.rate_entry.get().strip()
+        deadzone_raw = self.deadzone_entry.get().strip()
+
+        if not ip:
+            messagebox.showerror("Sys-Botbase", "IP address is required.")
+            return False
+        try:
+            slot = int(slot_raw)
+        except ValueError:
+            messagebox.showerror("Sys-Botbase", "Controller slot must be a number.")
+            return False
+        if slot < 0:
+            messagebox.showerror("Sys-Botbase", "Controller slot cannot be negative.")
+            return False
+        rate = None
+        if rate_raw:
+            try:
+                rate = float(rate_raw)
+            except ValueError:
+                messagebox.showerror("Sys-Botbase", "Polling rate must be a number.")
+                return False
+            if rate <= 0:
+                messagebox.showerror("Sys-Botbase", "Polling rate must be positive.")
+                return False
+
+        deadzone = None
+        if deadzone_raw:
+            try:
+                deadzone = int(deadzone_raw)
+            except ValueError:
+                messagebox.showerror("Sys-Botbase", "Deadzone must be a number.")
+                return False
+            if deadzone < 0:
+                messagebox.showerror("Sys-Botbase", "Deadzone cannot be negative.")
+                return False
+            if deadzone == 0:
+                deadzone = None
+
+        self._validated_ip = ip
+        self._validated_slot = slot
+        self._validated_rate = rate
+        self._validated_smoothing = bool(self.smoothing_var.get())
+        self._validated_deadzone = deadzone
+        return True
+
+    def apply(self):
+        self.result = (
+            self._validated_ip,
+            self._validated_slot,
+            self._validated_rate,
+            self._validated_smoothing,
+            self._validated_deadzone,
+        )
+
+
 class ViewerUI:
     def __init__(self, client: DSUClient):
         self.client = client
@@ -325,6 +465,7 @@ class ViewerUI:
         self.root.title("DSOwO - Viewer")
         self.capture_menu_index = None
         self.motion_menu_index = None
+        self.sysbot_menu_index = None
         self._build_menu()
         self.mode = "tabs"
         self.notebook = ttk.Notebook(self.root)
@@ -335,6 +476,12 @@ class ViewerUI:
         self.rebroadcaster = Rebroadcaster()
         self.capture = InputCapture(self.client)
         self.motion_capture = MotionCapture(self.client)
+        self.sys_botbase = SysBotbaseBridge(self.client)
+        self._sysbot_ip = self.client.server_ip
+        self._sysbot_rate_hz: float | None = None
+        self._sysbot_smoothing = False
+        self._sysbot_deadzone: int | None = None
+        self._sysbot_menu_state = self.sys_botbase.active
         self.parser_win = None
         # Initialize tabs based on discovered slots. If slot 0 is present and
         # there are fewer than 5 slots total, include it; otherwise start at 1.
@@ -359,6 +506,8 @@ class ViewerUI:
         self.options_menu.add_command(label="Remote Connection", command=self._change_remote)
         self.tools_menu.add_command(label="Rebroadcast", command=self._start_rebroadcast)
         self.tools_menu.add_command(label="Packet Parser", command=self._open_parser)
+        self.tools_menu.add_command(label="Sys-Botbase", command=self._start_sysbot)
+        self.sysbot_menu_index = self.tools_menu.index("end")
         self.tools_menu.add_command(label="Start input capture", command=self._start_capture)
         self.capture_menu_index = self.tools_menu.index("end")
         self.tools_menu.add_command(label="Start motion capture", command=self._start_motion_capture)
@@ -459,6 +608,43 @@ class ViewerUI:
                                        label="Start motion capture",
                                        command=self._start_motion_capture)
 
+    def _start_sysbot(self):
+        dialog = SysBotDialog(
+            self.root,
+            self._sysbot_ip,
+            self.client.available_slots,
+            self._sysbot_rate_hz,
+            self._sysbot_smoothing,
+            self._sysbot_deadzone,
+        )
+        if dialog.result is None:
+            return
+        ip, slot, rate, smoothing, deadzone = dialog.result
+        self._sysbot_ip = ip
+        self._sysbot_rate_hz = rate
+        self._sysbot_smoothing = smoothing
+        self._sysbot_deadzone = deadzone
+        if not self.sys_botbase.start(
+            ip,
+            slot,
+            max_rate_hz=rate,
+            smoothing=smoothing,
+            deadzone=deadzone,
+        ):
+            messagebox.showerror("Sys-Botbase", "Failed to connect to sys-botbase server.")
+            return
+        self.tools_menu.entryconfigure(self.sysbot_menu_index,
+                                       label="Stop Sys-Botbase",
+                                       command=self._stop_sysbot)
+        self._sysbot_menu_state = True
+
+    def _stop_sysbot(self):
+        self.sys_botbase.stop()
+        self.tools_menu.entryconfigure(self.sysbot_menu_index,
+                                       label="Sys-Botbase",
+                                       command=self._start_sysbot)
+        self._sysbot_menu_state = False
+
     def _change_port(self):
         port = simpledialog.askinteger(
             "Port",
@@ -480,6 +666,18 @@ class ViewerUI:
             self.client.restart(server_ip=ip)
 
     def update(self):
+        if self.sysbot_menu_index is not None:
+            sysbot_active = self.sys_botbase.active
+            if sysbot_active != self._sysbot_menu_state:
+                if sysbot_active:
+                    self.tools_menu.entryconfigure(self.sysbot_menu_index,
+                                                   label="Stop Sys-Botbase",
+                                                   command=self._stop_sysbot)
+                else:
+                    self.tools_menu.entryconfigure(self.sysbot_menu_index,
+                                                   label="Sys-Botbase",
+                                                   command=self._start_sysbot)
+                self._sysbot_menu_state = sysbot_active
         slots = self.client.available_slots
         if self.mode == "tabs":
             if len(slots) > 4:
@@ -509,6 +707,7 @@ class ViewerUI:
             self.rebroadcaster.stop()
             self.capture.stop_capture()
             self.motion_capture.stop_capture()
+            self.sys_botbase.stop()
 
 
 def main(server_ip: str = "127.0.0.1"):
