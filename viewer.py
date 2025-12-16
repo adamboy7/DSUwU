@@ -346,10 +346,12 @@ class DSUClient:
 class SysBotDialog(simpledialog.Dialog):
     """Combined dialog for configuring Sys-Botbase forwarding."""
 
-    def __init__(self, parent, initial_ip: str | None, slots: list[int] | tuple[int, ...]):
+    def __init__(self, parent, initial_ip: str | None, slots: list[int] | tuple[int, ...],
+                 initial_rate: float | None):
         self.initial_ip = initial_ip or ""
+        self.initial_rate = initial_rate
         self.slots = slots
-        self.result: tuple[str, int] | None = None
+        self.result: tuple[str, int, float | None] | None = None
         super().__init__(parent, "Sys-Botbase")
 
     def body(self, master):
@@ -369,12 +371,21 @@ class SysBotDialog(simpledialog.Dialog):
             self.slot_var.set(str(self.slots[0]))
         self.slot_combo.grid(row=1, column=1, sticky="ew", padx=4, pady=4)
 
+        ttk.Label(master, text="Max packet rate (Hz, optional):").grid(
+            row=2, column=0, sticky="w", padx=4, pady=4
+        )
+        self.rate_entry = ttk.Entry(master)
+        if self.initial_rate:
+            self.rate_entry.insert(0, str(self.initial_rate))
+        self.rate_entry.grid(row=2, column=1, sticky="ew", padx=4, pady=4)
+
         master.columnconfigure(1, weight=1)
         return self.ip_entry
 
     def validate(self) -> bool:
         ip = self.ip_entry.get().strip()
         slot_raw = self.slot_var.get().strip()
+        rate_raw = self.rate_entry.get().strip()
 
         if not ip:
             messagebox.showerror("Sys-Botbase", "IP address is required.")
@@ -387,13 +398,24 @@ class SysBotDialog(simpledialog.Dialog):
         if slot < 0:
             messagebox.showerror("Sys-Botbase", "Controller slot cannot be negative.")
             return False
+        rate = None
+        if rate_raw:
+            try:
+                rate = float(rate_raw)
+            except ValueError:
+                messagebox.showerror("Sys-Botbase", "Polling rate must be a number.")
+                return False
+            if rate <= 0:
+                messagebox.showerror("Sys-Botbase", "Polling rate must be positive.")
+                return False
 
         self._validated_ip = ip
         self._validated_slot = slot
+        self._validated_rate = rate
         return True
 
     def apply(self):
-        self.result = (self._validated_ip, self._validated_slot)
+        self.result = (self._validated_ip, self._validated_slot, self._validated_rate)
 
 
 class ViewerUI:
@@ -415,6 +437,7 @@ class ViewerUI:
         self.capture = InputCapture(self.client)
         self.motion_capture = MotionCapture(self.client)
         self.sys_botbase = SysBotbaseBridge(self.client)
+        self._sysbot_rate_hz: float | None = None
         self._sysbot_menu_state = self.sys_botbase.active
         self.parser_win = None
         # Initialize tabs based on discovered slots. If slot 0 is present and
@@ -543,11 +566,17 @@ class ViewerUI:
                                        command=self._start_motion_capture)
 
     def _start_sysbot(self):
-        dialog = SysBotDialog(self.root, self.client.server_ip, self.client.available_slots)
+        dialog = SysBotDialog(
+            self.root,
+            self.client.server_ip,
+            self.client.available_slots,
+            self._sysbot_rate_hz,
+        )
         if dialog.result is None:
             return
-        ip, slot = dialog.result
-        if not self.sys_botbase.start(ip, slot):
+        ip, slot, rate = dialog.result
+        self._sysbot_rate_hz = rate
+        if not self.sys_botbase.start(ip, slot, max_rate_hz=rate):
             messagebox.showerror("Sys-Botbase", "Failed to connect to sys-botbase server.")
             return
         self.tools_menu.entryconfigure(self.sysbot_menu_index,
