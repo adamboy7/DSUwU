@@ -60,7 +60,7 @@ class SysBotbaseBridge:
         self._poll_interval: float | None = None
         self._stop_event: threading.Event | None = None
         self._pending_event: threading.Event | None = None
-        self._pending_state: dict | None = None
+        self._pending_sticks: tuple[int, int, int, int] | None = None
         self._pending_dirty: bool = False
         self._send_thread: threading.Thread | None = None
         self._smoothing_enabled = False
@@ -76,6 +76,10 @@ class SysBotbaseBridge:
 
         When ``max_rate_hz`` is provided, outgoing packets are throttled to the
         requested rate to avoid flooding sys-botbase with rapid stick updates.
+
+        Manual repro: start the bridge with ``max_rate_hz`` set (for example
+        30), press a button, and confirm the press is observed immediately
+        while stick movements continue to follow the configured rate limit.
         """
         self.stop()
         try:
@@ -100,7 +104,7 @@ class SysBotbaseBridge:
         if self._max_rate_hz:
             self._stop_event = threading.Event()
             self._pending_event = threading.Event()
-            self._pending_state = None
+            self._pending_sticks = None
             self._pending_dirty = False
             self._send_thread = threading.Thread(target=self._send_loop, daemon=True)
             self._send_thread.start()
@@ -113,13 +117,16 @@ class SysBotbaseBridge:
                     logging.error("State callback failed: %s", exc)
             if slot_id != self.slot or not self.active:
                 return
+            mapped_buttons = self._map_buttons(state)
+            self._dispatch_buttons(mapped_buttons)
+            sticks = self._extract_sticks(state)
             if self._max_rate_hz:
-                self._pending_state = state
+                self._pending_sticks = sticks
                 self._pending_dirty = True
                 if self._pending_event is not None:
                     self._pending_event.set()
             else:
-                self._dispatch_state(state)
+                self._dispatch_sticks(sticks)
 
         self._callback = callback
         self.client.state_callback = self._callback
@@ -136,7 +143,7 @@ class SysBotbaseBridge:
         self._send_thread = None
         self._stop_event = None
         self._pending_event = None
-        self._pending_state = None
+        self._pending_sticks = None
         self._pending_dirty = False
         self._max_rate_hz = None
         self._poll_interval = None
@@ -167,11 +174,19 @@ class SysBotbaseBridge:
         self._prev_callback = None
         self._callback = None
 
-    def _dispatch_state(self, state: dict) -> None:
+    def _dispatch_buttons(self, pressed: set[str]) -> None:
         try:
-            self._forward_state(state)
+            self._sync_buttons(pressed)
         except OSError as exc:
-            logging.error("Failed to forward state to sys-botbase at %s: %s",
+            logging.error("Failed to forward buttons to sys-botbase at %s: %s",
+                          self.target_ip, exc)
+            self.stop()
+
+    def _dispatch_sticks(self, sticks: tuple[int, int, int, int]) -> None:
+        try:
+            self._sync_sticks(sticks)
+        except OSError as exc:
+            logging.error("Failed to forward sticks to sys-botbase at %s: %s",
                           self.target_ip, exc)
             self.stop()
 
@@ -190,17 +205,12 @@ class SysBotbaseBridge:
             now = time.monotonic()
             if now < next_send:
                 continue
-            if not self._pending_dirty or self._pending_state is None:
+            if not self._pending_dirty or self._pending_sticks is None:
                 next_send = now + self._poll_interval
                 continue
-            self._dispatch_state(self._pending_state)
+            self._dispatch_sticks(self._pending_sticks)
             self._pending_dirty = False
             next_send = now + self._poll_interval
-
-    def _forward_state(self, state: dict) -> None:
-        pressed = self._map_buttons(state)
-        self._sync_buttons(pressed)
-        self._sync_sticks(state)
 
     def _map_buttons(self, state: dict) -> set[str]:
         """Translate DSU button names to sys-botbase labels."""
@@ -221,20 +231,22 @@ class SysBotbaseBridge:
             self._send_command(f"press {btn}")
         self._last_buttons = pressed
 
-    def _sync_sticks(self, state: dict) -> None:
+    def _extract_sticks(self, state: dict) -> tuple[int, int, int, int]:
         ls_x, ls_y = state.get("ls", (128, 128))
         rs_x, rs_y = state.get("rs", (128, 128))
         ls_x = self._apply_deadzone(ls_x)
         ls_y = self._apply_deadzone(ls_y)
         rs_x = self._apply_deadzone(rs_x)
         rs_y = self._apply_deadzone(rs_y)
-        raw_sticks = (ls_x, ls_y, rs_x, rs_y)
+        return ls_x, ls_y, rs_x, rs_y
+
+    def _sync_sticks(self, raw_sticks: tuple[int, int, int, int]) -> None:
         if self._smoothing_enabled and self._last_raw_sticks is not None:
             deltas = [abs(a - b) for a, b in zip(raw_sticks, self._last_raw_sticks)]
             if max(deltas) < 3:
                 return
-        left = (_scale_axis(ls_x), _invert_axis(_scale_axis(ls_y)))
-        right = (_scale_axis(rs_x), _invert_axis(_scale_axis(rs_y)))
+        left = (_scale_axis(raw_sticks[0]), _invert_axis(_scale_axis(raw_sticks[1])))
+        right = (_scale_axis(raw_sticks[2]), _invert_axis(_scale_axis(raw_sticks[3])))
         sticks = (*left, *right)
         if self._last_sticks is None or sticks[:2] != self._last_sticks[:2]:
             self._send_command(f"setStick LEFT {left[0]} {left[1]}")
