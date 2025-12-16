@@ -343,6 +343,59 @@ class DSUClient:
 
 
 
+class SysBotDialog(simpledialog.Dialog):
+    """Combined dialog for configuring Sys-Botbase forwarding."""
+
+    def __init__(self, parent, initial_ip: str | None, slots: list[int] | tuple[int, ...]):
+        self.initial_ip = initial_ip or ""
+        self.slots = slots
+        self.result: tuple[str, int] | None = None
+        super().__init__(parent, "Sys-Botbase")
+
+    def body(self, master):
+        ttk.Label(master, text="Sys-Botbase IP:").grid(row=0, column=0, sticky="w", padx=4, pady=4)
+        self.ip_entry = ttk.Entry(master)
+        self.ip_entry.insert(0, self.initial_ip)
+        self.ip_entry.grid(row=0, column=1, sticky="ew", padx=4, pady=4)
+
+        ttk.Label(master, text="Controller slot:").grid(row=1, column=0, sticky="w", padx=4, pady=4)
+        self.slot_var = StringVar()
+        self.slot_combo = ttk.Combobox(
+            master,
+            textvariable=self.slot_var,
+            values=[str(s) for s in self.slots],
+        )
+        if self.slots:
+            self.slot_var.set(str(self.slots[0]))
+        self.slot_combo.grid(row=1, column=1, sticky="ew", padx=4, pady=4)
+
+        master.columnconfigure(1, weight=1)
+        return self.ip_entry
+
+    def validate(self) -> bool:
+        ip = self.ip_entry.get().strip()
+        slot_raw = self.slot_var.get().strip()
+
+        if not ip:
+            messagebox.showerror("Sys-Botbase", "IP address is required.")
+            return False
+        try:
+            slot = int(slot_raw)
+        except ValueError:
+            messagebox.showerror("Sys-Botbase", "Controller slot must be a number.")
+            return False
+        if slot < 0:
+            messagebox.showerror("Sys-Botbase", "Controller slot cannot be negative.")
+            return False
+
+        self._validated_ip = ip
+        self._validated_slot = slot
+        return True
+
+    def apply(self):
+        self.result = (self._validated_ip, self._validated_slot)
+
+
 class ViewerUI:
     def __init__(self, client: DSUClient):
         self.client = client
@@ -490,21 +543,10 @@ class ViewerUI:
                                        command=self._start_motion_capture)
 
     def _start_sysbot(self):
-        ip = simpledialog.askstring(
-            "Sys-Botbase",
-            "Enter Sys-Botbase IP:",
-            parent=self.root,
-        )
-        if not ip:
+        dialog = SysBotDialog(self.root, self.client.server_ip, self.client.available_slots)
+        if dialog.result is None:
             return
-        slot = simpledialog.askinteger(
-            "Sys-Botbase",
-            "Enter controller slot to mirror:",
-            parent=self.root,
-            minvalue=0,
-        )
-        if slot is None:
-            return
+        ip, slot = dialog.result
         if not self.sys_botbase.start(ip, slot):
             messagebox.showerror("Sys-Botbase", "Failed to connect to sys-botbase server.")
             return
