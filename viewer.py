@@ -111,16 +111,25 @@ def parse_button_response(data: bytes):
 
     touch_fmt = "<2B2H"
     tsize = struct.calcsize(touch_fmt)
+    if len(payload) < offset + tsize:
+        return None
     touch1_raw = struct.unpack_from(touch_fmt, payload, offset)
     offset += tsize
+    if len(payload) < offset + tsize:
+        return None
     touch2_raw = struct.unpack_from(touch_fmt, payload, offset)
     offset += tsize
 
     touch1 = decode_touch(touch1_raw)
     touch2 = decode_touch(touch2_raw)
 
+    if len(payload) < offset + 8:
+        return None
     motion_ts, = struct.unpack_from("<Q", payload, offset)
     offset += 8
+    accel_gyro_fmt = "<6f"
+    if len(payload) < offset + struct.calcsize(accel_gyro_fmt):
+        return None
     accel_gyro = struct.unpack_from("<6f", payload, offset)
 
     return {
@@ -273,7 +282,11 @@ class DSUClient:
                 data, _ = self.sock.recvfrom(2048)
                 msg_type, = struct.unpack_from("<I", data, 16)
                 if msg_type == DSU_button_response:
-                    state = parse_button_response(data)
+                    try:
+                        state = parse_button_response(data)
+                    except struct.error as exc:
+                        logging.warning("Malformed DSU button response dropped: %s", exc)
+                        continue
                     if state:
                         slot = state["slot"]
                         self.states[slot] = state
