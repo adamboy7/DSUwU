@@ -134,6 +134,10 @@ class SysBotbaseBridge:
             except OSError as exc:
                 logging.warning("Failed to send neutral state to sys-botbase: %s", exc)
             try:
+                self._send_command("detachController")
+            except OSError as exc:
+                logging.warning("Failed to detach controller from sys-botbase: %s", exc)
+            try:
                 self.sock.close()
             except OSError:
                 pass

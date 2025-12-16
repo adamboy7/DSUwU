@@ -437,6 +437,7 @@ class ViewerUI:
         self.capture = InputCapture(self.client)
         self.motion_capture = MotionCapture(self.client)
         self.sys_botbase = SysBotbaseBridge(self.client)
+        self._sysbot_ip = self.client.server_ip
         self._sysbot_rate_hz: float | None = None
         self._sysbot_menu_state = self.sys_botbase.active
         self.parser_win = None
@@ -568,13 +569,14 @@ class ViewerUI:
     def _start_sysbot(self):
         dialog = SysBotDialog(
             self.root,
-            self.client.server_ip,
+            self._sysbot_ip,
             self.client.available_slots,
             self._sysbot_rate_hz,
         )
         if dialog.result is None:
             return
         ip, slot, rate = dialog.result
+        self._sysbot_ip = ip
         self._sysbot_rate_hz = rate
         if not self.sys_botbase.start(ip, slot, max_rate_hz=rate):
             messagebox.showerror("Sys-Botbase", "Failed to connect to sys-botbase server.")
