@@ -53,6 +53,7 @@ class SysBotbaseBridge:
         self.sock: socket.socket | None = None
         self._last_buttons: set[str] = set()
         self._last_sticks: tuple[int, int, int, int] | None = None
+        self._last_raw_sticks: tuple[int, int, int, int] | None = None
         self._prev_callback: Callable | None = None
         self._callback = None
         self._max_rate_hz: float | None = None
@@ -62,12 +63,15 @@ class SysBotbaseBridge:
         self._pending_state: dict | None = None
         self._pending_dirty: bool = False
         self._send_thread: threading.Thread | None = None
+        self._smoothing_enabled = False
+        self._deadzone: int | None = None
 
     @property
     def active(self) -> bool:
         return self.sock is not None
 
-    def start(self, ip: str, slot: int, max_rate_hz: float | None = None) -> bool:
+    def start(self, ip: str, slot: int, max_rate_hz: float | None = None,
+              smoothing: bool = False, deadzone: int | None = None) -> bool:
         """Connect to sys-botbase at ``ip`` and forward updates from ``slot``.
 
         When ``max_rate_hz`` is provided, outgoing packets are throttled to the
@@ -87,9 +91,12 @@ class SysBotbaseBridge:
         self.sock = sock
         self._last_buttons.clear()
         self._last_sticks = None
+        self._last_raw_sticks = None
         self._prev_callback = self.client.state_callback
         self._max_rate_hz = max_rate_hz if max_rate_hz and max_rate_hz > 0 else None
         self._poll_interval = (1.0 / self._max_rate_hz) if self._max_rate_hz else None
+        self._smoothing_enabled = smoothing
+        self._deadzone = deadzone if deadzone and deadzone > 0 else None
         if self._max_rate_hz:
             self._stop_event = threading.Event()
             self._pending_event = threading.Event()
@@ -152,6 +159,9 @@ class SysBotbaseBridge:
         self.slot = None
         self._last_buttons.clear()
         self._last_sticks = None
+        self._last_raw_sticks = None
+        self._smoothing_enabled = False
+        self._deadzone = None
         if self.client.state_callback is self._callback:
             self.client.state_callback = self._prev_callback
         self._prev_callback = None
@@ -212,6 +222,15 @@ class SysBotbaseBridge:
     def _sync_sticks(self, state: dict) -> None:
         ls_x, ls_y = state.get("ls", (128, 128))
         rs_x, rs_y = state.get("rs", (128, 128))
+        ls_x = self._apply_deadzone(ls_x)
+        ls_y = self._apply_deadzone(ls_y)
+        rs_x = self._apply_deadzone(rs_x)
+        rs_y = self._apply_deadzone(rs_y)
+        raw_sticks = (ls_x, ls_y, rs_x, rs_y)
+        if self._smoothing_enabled and self._last_raw_sticks is not None:
+            deltas = [abs(a - b) for a, b in zip(raw_sticks, self._last_raw_sticks)]
+            if max(deltas) < 3:
+                return
         left = (_scale_axis(ls_x), _invert_axis(_scale_axis(ls_y)))
         right = (_scale_axis(rs_x), _invert_axis(_scale_axis(rs_y)))
         sticks = (*left, *right)
@@ -220,6 +239,7 @@ class SysBotbaseBridge:
         if self._last_sticks is None or sticks[2:] != self._last_sticks[2:]:
             self._send_command(f"setStick RIGHT {right[0]} {right[1]}")
         self._last_sticks = sticks
+        self._last_raw_sticks = raw_sticks
 
     def _send_neutral_state(self) -> None:
         """Release any held inputs and recenter sticks."""
@@ -233,3 +253,11 @@ class SysBotbaseBridge:
         if self.sock is None:
             return
         self.sock.sendall((command + "\r\n").encode("ascii"))
+
+    def _apply_deadzone(self, value: int) -> int:
+        """Clamp small stick motions to center when deadzone is set."""
+        if self._deadzone is None:
+            return value
+        if abs(value - 128) <= self._deadzone:
+            return 128
+        return value

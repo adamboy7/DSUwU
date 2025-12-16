@@ -3,7 +3,7 @@ import socket
 import time
 import threading
 import logging
-from tkinter import Tk, Label, StringVar
+from tkinter import Tk, Label, StringVar, BooleanVar
 from tkinter import ttk
 from tkinter import Menu, simpledialog, filedialog, messagebox
 
@@ -347,11 +347,14 @@ class SysBotDialog(simpledialog.Dialog):
     """Combined dialog for configuring Sys-Botbase forwarding."""
 
     def __init__(self, parent, initial_ip: str | None, slots: list[int] | tuple[int, ...],
-                 initial_rate: float | None):
+                 initial_rate: float | None, initial_smoothing: bool,
+                 initial_deadzone: int | None):
         self.initial_ip = initial_ip or ""
         self.initial_rate = initial_rate
+        self.initial_smoothing = initial_smoothing
+        self.initial_deadzone = initial_deadzone
         self.slots = slots
-        self.result: tuple[str, int, float | None] | None = None
+        self.result: tuple[str, int, float | None, bool, int | None] | None = None
         super().__init__(parent, "Sys-Botbase")
 
     def body(self, master):
@@ -379,6 +382,21 @@ class SysBotDialog(simpledialog.Dialog):
             self.rate_entry.insert(0, str(self.initial_rate))
         self.rate_entry.grid(row=2, column=1, sticky="ew", padx=4, pady=4)
 
+        self.smoothing_var = BooleanVar(value=self.initial_smoothing)
+        ttk.Checkbutton(
+            master,
+            text="Enable smoothing (ignore <3 unit stick changes)",
+            variable=self.smoothing_var,
+        ).grid(row=3, column=0, columnspan=2, sticky="w", padx=4, pady=4)
+
+        ttk.Label(master, text="Deadzone (0-255, optional):").grid(
+            row=4, column=0, sticky="w", padx=4, pady=4
+        )
+        self.deadzone_entry = ttk.Entry(master)
+        if self.initial_deadzone is not None:
+            self.deadzone_entry.insert(0, str(self.initial_deadzone))
+        self.deadzone_entry.grid(row=4, column=1, sticky="ew", padx=4, pady=4)
+
         master.columnconfigure(1, weight=1)
         return self.ip_entry
 
@@ -386,6 +404,7 @@ class SysBotDialog(simpledialog.Dialog):
         ip = self.ip_entry.get().strip()
         slot_raw = self.slot_var.get().strip()
         rate_raw = self.rate_entry.get().strip()
+        deadzone_raw = self.deadzone_entry.get().strip()
 
         if not ip:
             messagebox.showerror("Sys-Botbase", "IP address is required.")
@@ -409,13 +428,34 @@ class SysBotDialog(simpledialog.Dialog):
                 messagebox.showerror("Sys-Botbase", "Polling rate must be positive.")
                 return False
 
+        deadzone = None
+        if deadzone_raw:
+            try:
+                deadzone = int(deadzone_raw)
+            except ValueError:
+                messagebox.showerror("Sys-Botbase", "Deadzone must be a number.")
+                return False
+            if deadzone < 0:
+                messagebox.showerror("Sys-Botbase", "Deadzone cannot be negative.")
+                return False
+            if deadzone == 0:
+                deadzone = None
+
         self._validated_ip = ip
         self._validated_slot = slot
         self._validated_rate = rate
+        self._validated_smoothing = bool(self.smoothing_var.get())
+        self._validated_deadzone = deadzone
         return True
 
     def apply(self):
-        self.result = (self._validated_ip, self._validated_slot, self._validated_rate)
+        self.result = (
+            self._validated_ip,
+            self._validated_slot,
+            self._validated_rate,
+            self._validated_smoothing,
+            self._validated_deadzone,
+        )
 
 
 class ViewerUI:
@@ -439,6 +479,8 @@ class ViewerUI:
         self.sys_botbase = SysBotbaseBridge(self.client)
         self._sysbot_ip = self.client.server_ip
         self._sysbot_rate_hz: float | None = None
+        self._sysbot_smoothing = False
+        self._sysbot_deadzone: int | None = None
         self._sysbot_menu_state = self.sys_botbase.active
         self.parser_win = None
         # Initialize tabs based on discovered slots. If slot 0 is present and
@@ -572,13 +614,23 @@ class ViewerUI:
             self._sysbot_ip,
             self.client.available_slots,
             self._sysbot_rate_hz,
+            self._sysbot_smoothing,
+            self._sysbot_deadzone,
         )
         if dialog.result is None:
             return
-        ip, slot, rate = dialog.result
+        ip, slot, rate, smoothing, deadzone = dialog.result
         self._sysbot_ip = ip
         self._sysbot_rate_hz = rate
-        if not self.sys_botbase.start(ip, slot, max_rate_hz=rate):
+        self._sysbot_smoothing = smoothing
+        self._sysbot_deadzone = deadzone
+        if not self.sys_botbase.start(
+            ip,
+            slot,
+            max_rate_hz=rate,
+            smoothing=smoothing,
+            deadzone=deadzone,
+        ):
             messagebox.showerror("Sys-Botbase", "Failed to connect to sys-botbase server.")
             return
         self.tools_menu.entryconfigure(self.sysbot_menu_index,
