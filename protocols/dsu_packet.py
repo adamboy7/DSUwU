@@ -137,7 +137,7 @@ def send_port_disconnect(addr, slot):
 def handle_version_request(addr):
     payload = struct.pack('<I H', DSU_version_response, PROTOCOL_VERSION)
     packet = build_header(DSU_version_response, payload[4:])
-    info = net_cfg.active_clients.setdefault(addr, {'last_seen': time.time(), 'slots': set()})
+    info = net_cfg.ensure_client(addr)
     info['last_seen'] = time.time()
     queue_packet(packet, addr, "version response")
 
@@ -146,7 +146,7 @@ def handle_list_ports(addr, data):
     """Respond to a list ports request."""
     if len(data) < 24:
         return
-    info = net_cfg.active_clients.setdefault(addr, {'last_seen': time.time(), 'slots': set()})
+    info = net_cfg.ensure_client(addr)
     info['last_seen'] = time.time()
     count, = struct.unpack_from('<I', data, 20)
     slots = data[24:24 + count]
@@ -160,15 +160,27 @@ def handle_list_ports(addr, data):
 def handle_pad_data_request(addr, data):
     if len(data) < 28:
         return
-    slot = data[20]
-    info = net_cfg.active_clients.setdefault(addr, {'last_seen': time.time(), 'slots': set()})
+    reg_flags = data[20]
+    requested_slot = data[21]
+    mac = data[22:28]
+    info = net_cfg.ensure_client(addr)
     info['last_seen'] = time.time()
-    info['slots'].add(slot)
-    if controller_states[slot].connected:
-        net_cfg.known_slots.add(slot)
-    if slot not in net_cfg.logged_pad_requests:
-        print(f"Registered input request from {addr} for slot {slot}")
-        net_cfg.logged_pad_requests.add(slot)
+    info['registrations'].setdefault('slots', {})
+    info['registrations'].setdefault('macs', {})
+    now = time.time()
+    if reg_flags == 0:
+        info['registrations']['all'] = now
+    if reg_flags & 0x01:
+        info['registrations']['slots'][requested_slot] = now
+        info['slots'].add(requested_slot)
+        state = controller_states.get(requested_slot)
+        if state is not None and state.connected:
+            net_cfg.known_slots.add(requested_slot)
+        if requested_slot not in net_cfg.logged_pad_requests:
+            print(f"Registered input request from {addr} for slot {requested_slot}")
+            net_cfg.logged_pad_requests.add(requested_slot)
+    if reg_flags & 0x02 and mac != b"\x00" * 6:
+        info['registrations']['macs'][mac] = now
 
 
 def handle_motor_request(addr, data):
@@ -179,7 +191,7 @@ def handle_motor_request(addr, data):
     if slot >= net_cfg.soft_slot_limit:
         print("Warning: slots above 255 cannot be reported to the client")
         return
-    info = net_cfg.active_clients.setdefault(addr, {'last_seen': time.time(), 'slots': set()})
+    info = net_cfg.ensure_client(addr)
     info['last_seen'] = time.time()
     info['slots'].add(slot)
     state = controller_states.get(slot)
@@ -215,7 +227,7 @@ def handle_motor_command(addr, data):
     if len(data) < 30:
         return
     slot = data[20]
-    info = net_cfg.active_clients.setdefault(addr, {'last_seen': time.time(), 'slots': set()})
+    info = net_cfg.ensure_client(addr)
     info['last_seen'] = time.time()
     info['slots'].add(slot)
     motor_id = data[28]

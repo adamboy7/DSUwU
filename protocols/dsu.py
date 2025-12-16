@@ -20,6 +20,7 @@ from .dsu_constants import (
     DSU_motor_request,
     DSU_motor_response,
     motor_command,
+    PROTOCOL_VERSION,
 )
 # Access the ``libraries`` package using absolute imports. ``protocols`` does
 # not sit inside a larger package hierarchy so moving up a level via a relative
@@ -59,11 +60,27 @@ class DSUProtocol:
         try:
             while True:
                 data, addr = sock.recvfrom(2048)
-                if data[:4] != b"DSUC":
+                if len(data) < 20 or data[:4] != b"DSUC":
                     continue
-                if len(data) < 20:
+
+                try:
+                    _, version, declared_length, recv_crc, _ = struct.unpack("<4sHHII", data[:16])
+                except struct.error:
                     continue
-                msg_type, = struct.unpack("<I", data[16:20])
+
+                if version != PROTOCOL_VERSION:
+                    continue
+                if declared_length < 4:
+                    continue
+                if declared_length != len(data) - 16:
+                    continue
+
+                msg = data[16:]
+                computed_crc = packet.crc_packet(data[:16], msg)
+                if computed_crc != recv_crc:
+                    continue
+
+                msg_type, = struct.unpack("<I", msg[:4])
                 if msg_type == DSU_version_request:
                     packet.handle_version_request(addr)
                 elif msg_type == DSU_list_ports:
@@ -91,6 +108,21 @@ class DSUProtocol:
             if now - net_cfg.active_clients[addr]["last_seen"] > net_cfg.DSU_timeout:
                 del net_cfg.active_clients[addr]
                 print(f"Client {addr} timed out")
+            else:
+                info = net_cfg.ensure_client(addr)
+                regs = info["registrations"]
+                if regs.get("all") and now - regs["all"] > net_cfg.DSU_timeout:
+                    regs["all"] = 0.0
+                regs["slots"] = {
+                    slot: ts
+                    for slot, ts in regs.get("slots", {}).items()
+                    if now - ts <= net_cfg.DSU_timeout
+                }
+                regs["macs"] = {
+                    mac: ts
+                    for mac, ts in regs.get("macs", {}).items()
+                    if now - ts <= net_cfg.DSU_timeout
+                }
 
         for s, state in list(controller_states.items()):
             prev_connected = state.connected
@@ -122,32 +154,43 @@ class DSUProtocol:
                 for client in list(net_cfg.active_clients):
                     packet.send_port_info(client, s)
             if state.connection_type != -1:
+                mac_address = net_cfg.slot_mac_addresses[s]
                 for addr in list(net_cfg.active_clients):
-                    packet.send_input(
-                        addr,
-                        s,
-                        connected=state.connected,
-                        packet_num=state.packet_num,
-                        buttons1=state.buttons1,
-                        buttons2=state.buttons2,
-                        home=state.home,
-                        touch_button=state.touch_button,
-                        L_stick=state.L_stick,
-                        R_stick=state.R_stick,
-                        dpad_analog=state.dpad_analog,
-                        face_analog=state.face_analog,
-                        analog_R1=state.analog_R1,
-                        analog_L1=state.analog_L1,
-                        analog_R2=state.analog_R2,
-                        analog_L2=state.analog_L2,
-                        touchpad_input1=state.touchpad_input1,
-                        touchpad_input2=state.touchpad_input2,
-                        motion_timestamp=state.motion_timestamp,
-                        accelerometer=state.accelerometer,
-                        gyroscope=state.gyroscope,
-                        connection_type=state.connection_type,
-                        battery=state.battery,
-                    )
+                    info = net_cfg.ensure_client(addr)
+                    regs = info.get("registrations", {})
+                    all_ts = regs.get("all", 0.0)
+                    slot_ts = regs.get("slots", {}).get(s)
+                    mac_ts = regs.get("macs", {}).get(mac_address)
+                    if (
+                        (all_ts and now - all_ts <= net_cfg.DSU_timeout)
+                        or (slot_ts and now - slot_ts <= net_cfg.DSU_timeout)
+                        or (mac_ts and now - mac_ts <= net_cfg.DSU_timeout)
+                    ):
+                        packet.send_input(
+                            addr,
+                            s,
+                            connected=state.connected,
+                            packet_num=state.packet_num,
+                            buttons1=state.buttons1,
+                            buttons2=state.buttons2,
+                            home=state.home,
+                            touch_button=state.touch_button,
+                            L_stick=state.L_stick,
+                            R_stick=state.R_stick,
+                            dpad_analog=state.dpad_analog,
+                            face_analog=state.face_analog,
+                            analog_R1=state.analog_R1,
+                            analog_L1=state.analog_L1,
+                            analog_R2=state.analog_R2,
+                            analog_L2=state.analog_L2,
+                            touchpad_input1=state.touchpad_input1,
+                            touchpad_input2=state.touchpad_input2,
+                            motion_timestamp=state.motion_timestamp,
+                            accelerometer=state.accelerometer,
+                            gyroscope=state.gyroscope,
+                            connection_type=state.connection_type,
+                            battery=state.battery,
+                        )
         for state in list(controller_states.values()):
             state.packet_num = (state.packet_num + 1) & 0xFFFFFFFF
             motors = list(state.motors)

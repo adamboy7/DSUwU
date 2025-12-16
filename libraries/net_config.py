@@ -1,4 +1,5 @@
 import random
+import time
 
 # Server config
 UDP_IP = "0.0.0.0"
@@ -12,7 +13,7 @@ motor_count = 2
 
 # Server state tracking
 server_id = random.randint(0, 0xFFFFFFFF)
-# {addr: {'last_seen': float, 'slots': set()}}
+# {addr: {'last_seen': float, 'slots': set(), 'registrations': {...}}}
 active_clients = {}
 # Slots the server has already advertised
 known_slots = set()
@@ -103,3 +104,16 @@ def ensure_slot_count(n: int) -> None:
     for i in range(1, n + 1):
         ensure_slot(i)
 
+
+def _registration_defaults() -> dict:
+    """Return an empty registration tracking structure."""
+    return {'all': 0.0, 'slots': {}, 'macs': {}}
+
+
+def ensure_client(addr) -> dict:
+    """Return client info for ``addr``, creating defaults if needed."""
+    info = active_clients.setdefault(addr, {'last_seen': time.time(), 'slots': set()})
+    info.setdefault('last_seen', time.time())
+    info.setdefault('slots', set())
+    info.setdefault('registrations', _registration_defaults())
+    return info
