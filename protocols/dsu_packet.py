@@ -179,7 +179,18 @@ def handle_motor_request(addr, data):
     info = net_cfg.active_clients.setdefault(addr, {'last_seen': time.time(), 'slots': set()})
     info['last_seen'] = time.time()
     info['slots'].add(slot)
-    state = controller_states[slot]
+    state = controller_states.get(slot)
+    if (
+        state is None
+        or state.connection_type == -1
+        or not state.connected
+        or slot not in net_cfg.known_slots
+    ):
+        payload = struct.pack('<4B6s2B', slot, 0, 0, 0, b"\x00" * 6, 0, 0)
+        packet = build_header(DSU_motor_response, payload)
+        queue_packet(packet, addr, f"motor count slot {slot} (disconnected)")
+        return
+
     mac_address = net_cfg.slot_mac_addresses[slot]
     motor_count = state.motor_count
     payload = struct.pack(
