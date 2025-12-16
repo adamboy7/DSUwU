@@ -25,12 +25,13 @@ from protocols.dsu_constants import (
 )
 from protocols.dsu_packet import crc_packet
 
-def build_client_packet(msg_type: int, payload: bytes) -> bytes:
+def build_client_packet(msg_type: int, payload: bytes, protocol_version: int | None = None) -> bytes:
+    version = PROTOCOL_VERSION if protocol_version is None else protocol_version
     msg = struct.pack("<I", msg_type) + payload
     length = len(msg)
-    header = struct.pack("<4sHHII", b"DSUC", PROTOCOL_VERSION, length, 0, 0)
+    header = struct.pack("<4sHHII", b"DSUC", version, length, 0, 0)
     crc = crc_packet(header, msg)
-    header = struct.pack("<4sHHII", b"DSUC", PROTOCOL_VERSION, length, crc, 0)
+    header = struct.pack("<4sHHII", b"DSUC", version, length, crc, 0)
     return header + msg
 
 
@@ -65,6 +66,7 @@ def decode_touch(raw: tuple) -> dict:
 def parse_button_response(data: bytes):
     if len(data) < 20:
         return None
+    protocol_version, = struct.unpack_from("<H", data, 4)
     msg_type, = struct.unpack_from("<I", data, 16)
     if msg_type != DSU_button_response:
         return None
@@ -91,13 +93,13 @@ def parse_button_response(data: bytes):
         home,
         touch_button,
         ls_x,
-        ls_y,
+        ls_y_inverted,
         rs_x,
-        rs_y,
-        dpad_up,
-        dpad_right,
-        dpad_down,
+        rs_y_inverted,
         dpad_left,
+        dpad_down,
+        dpad_right,
+        dpad_up,
         tri,
         cir,
         cro,
@@ -131,11 +133,13 @@ def parse_button_response(data: bytes):
     if len(payload) < offset + struct.calcsize(accel_gyro_fmt):
         return None
     accel_gyro = struct.unpack_from("<6f", payload, offset)
+    accel_x, accel_y, accel_z, gyro_x, gyro_y, gyro_z = accel_gyro
 
     return {
         "slot": slot,
         "mac": ":".join(f"{b:02X}" for b in mac),
         "packet": packet_num,
+        "protocol_version": protocol_version,
         "connected": bool(connected),
         "connection_type": connection_type,
         "battery": battery,
@@ -144,8 +148,8 @@ def parse_button_response(data: bytes):
         "buttons": decode_buttons(buttons1, buttons2),
         "home": bool(home),
         "touch_button": bool(touch_button),
-        "ls": (ls_x, ls_y),
-        "rs": (rs_x, rs_y),
+        "ls": (ls_x, 255 - ls_y_inverted),
+        "rs": (rs_x, 255 - rs_y_inverted),
         "dpad": (dpad_up, dpad_right, dpad_down, dpad_left),
         "face": (tri, cir, cro, sqr),
         "analog_r1": analog_r1,
@@ -155,8 +159,8 @@ def parse_button_response(data: bytes):
         "touch1": touch1,
         "touch2": touch2,
         "motion_ts": motion_ts,
-        "accel": accel_gyro[:3],
-        "gyro": accel_gyro[3:],
+        "accel": (accel_x, accel_y, -accel_z),
+        "gyro": (gyro_x, gyro_y, gyro_z),
     }
 
 
@@ -175,6 +179,7 @@ class DSUClient:
         self.last_request = 0.0
         self.server_states = None
         self.state_callback = None
+        self.protocol_version = PROTOCOL_VERSION
         # Start requesting slots beginning at 1. Slot 0 will be discovered
         # automatically if the server reports it.
         self.request_slots = set(range(1, 5))
@@ -217,7 +222,10 @@ class DSUClient:
 
     def _send(self, msg_type: int, payload: bytes = b""):
         try:
-            self.sock.sendto(build_client_packet(msg_type, payload), self.addr)
+            self.sock.sendto(
+                build_client_packet(msg_type, payload, self.protocol_version),
+                self.addr,
+            )
         except OSError as exc:
             logging.error("Failed to send DSU packet: %s", exc)
 
@@ -291,6 +299,11 @@ class DSUClient:
 
             try:
                 data, _ = self.sock.recvfrom(2048)
+                try:
+                    header_version, = struct.unpack_from("<H", data, 4)
+                    self.protocol_version = min(header_version, PROTOCOL_VERSION)
+                except struct.error:
+                    pass
                 msg_type, = struct.unpack_from("<I", data, 16)
                 if msg_type == DSU_button_response:
                     try:

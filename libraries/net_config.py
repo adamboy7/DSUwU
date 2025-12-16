@@ -1,6 +1,8 @@
 import random
 import time
 
+from protocols.dsu_constants import PROTOCOL_VERSION
+
 # Server config
 UDP_IP = "0.0.0.0"
 UDP_port = 26760
@@ -116,4 +118,5 @@ def ensure_client(addr) -> dict:
     info.setdefault('last_seen', time.time())
     info.setdefault('slots', set())
     info.setdefault('registrations', _registration_defaults())
+    info.setdefault('protocol_version', PROTOCOL_VERSION)
     return info

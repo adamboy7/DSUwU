@@ -68,7 +68,7 @@ class DSUProtocol:
                 except struct.error:
                     continue
 
-                if version != PROTOCOL_VERSION:
+                if version > PROTOCOL_VERSION:
                     continue
                 if declared_length < 4:
                     continue
@@ -80,15 +80,19 @@ class DSUProtocol:
                 if computed_crc != recv_crc:
                     continue
 
+                negotiated_version = min(version, PROTOCOL_VERSION)
+                info = net_cfg.ensure_client(addr)
+                info["protocol_version"] = negotiated_version
+
                 msg_type, = struct.unpack("<I", msg[:4])
                 if msg_type == DSU_version_request:
-                    packet.handle_version_request(addr)
+                    packet.handle_version_request(addr, negotiated_version)
                 elif msg_type == DSU_list_ports:
-                    packet.handle_list_ports(addr, data)
+                    packet.handle_list_ports(addr, data, protocol_version=negotiated_version)
                 elif msg_type == DSU_button_request:
                     packet.handle_pad_data_request(addr, data)
                 elif msg_type == DSU_motor_request:
-                    packet.handle_motor_request(addr, data)
+                    packet.handle_motor_request(addr, data, protocol_version=negotiated_version)
                 elif msg_type == motor_command:
                     packet.handle_motor_command(addr, data)
         except BlockingIOError:
@@ -138,11 +142,21 @@ class DSUProtocol:
                     state.connected = False
                     net_cfg.known_slots.discard(s)
                     for client in list(net_cfg.active_clients):
-                        packet.send_port_disconnect(client, s)
+                        client_info = net_cfg.active_clients.get(client, {})
+                        packet.send_port_disconnect(
+                            client,
+                            s,
+                            protocol_version=client_info.get("protocol_version"),
+                        )
                 else:
                     net_cfg.known_slots.add(s)
                     for client in list(net_cfg.active_clients):
-                        packet.send_port_info(client, s)
+                        client_info = net_cfg.active_clients.get(client, {})
+                        packet.send_port_info(
+                            client,
+                            s,
+                            protocol_version=client_info.get("protocol_version"),
+                        )
 
             if (
                 state.connection_type != -1
@@ -152,7 +166,12 @@ class DSUProtocol:
             ):
                 net_cfg.known_slots.add(s)
                 for client in list(net_cfg.active_clients):
-                    packet.send_port_info(client, s)
+                    client_info = net_cfg.active_clients.get(client, {})
+                    packet.send_port_info(
+                        client,
+                        s,
+                        protocol_version=client_info.get("protocol_version"),
+                    )
             if state.connection_type != -1:
                 mac_address = net_cfg.slot_mac_addresses[s]
                 for addr in list(net_cfg.active_clients):
@@ -190,6 +209,7 @@ class DSUProtocol:
                             gyroscope=state.gyroscope,
                             connection_type=state.connection_type,
                             battery=state.battery,
+                            protocol_version=info.get("protocol_version"),
                         )
         for state in list(controller_states.values()):
             state.packet_num = (state.packet_num + 1) & 0xFFFFFFFF

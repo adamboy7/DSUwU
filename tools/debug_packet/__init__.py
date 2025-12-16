@@ -107,6 +107,7 @@ def format_state(state: dict) -> str:
     if not state:
         return "No data"
     lines = [
+        f"Protocol: {state.get('protocol_version', 'unknown')}",
         f"MAC: {state['mac']}",
         f"Connected: {state['connected']}",
         f"Packet: {state['packet']}",
