@@ -17,15 +17,21 @@ def _scale_axis(value: int) -> int:
     return max(-0x8000, min(0x7FFF, scaled))
 
 
+def _invert_axis(value: int) -> int:
+    """Flip an already scaled axis value without exceeding valid bounds."""
+    return max(-0x8000, min(0x7FFF, -value))
+
+
 class SysBotbaseBridge:
     """Stream DSU controller state to a sys-botbase endpoint."""
 
     DEFAULT_PORT = 6000
     BUTTON_MAP = {
-        "A": "A",
-        "B": "B",
-        "X": "X",
-        "Y": "Y",
+        # DSU uses Xbox-style face labels; sys-botbase expects Switch layout.
+        "A": "B",
+        "B": "A",
+        "X": "Y",
+        "Y": "X",
         "R1": "R",
         "L1": "L",
         "R2": "ZR",
@@ -206,8 +212,8 @@ class SysBotbaseBridge:
     def _sync_sticks(self, state: dict) -> None:
         ls_x, ls_y = state.get("ls", (128, 128))
         rs_x, rs_y = state.get("rs", (128, 128))
-        left = (_scale_axis(ls_x), _scale_axis(ls_y))
-        right = (_scale_axis(rs_x), _scale_axis(rs_y))
+        left = (_scale_axis(ls_x), _invert_axis(_scale_axis(ls_y)))
+        right = (_scale_axis(rs_x), _invert_axis(_scale_axis(rs_y)))
         sticks = (*left, *right)
         if self._last_sticks is None or sticks[:2] != self._last_sticks[:2]:
             self._send_command(f"setStick LEFT {left[0]} {left[1]}")
