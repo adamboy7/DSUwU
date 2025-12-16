@@ -538,12 +538,10 @@ class ViewerUI:
             self.client.restart(server_ip=ip)
 
     def update(self):
-        if not self.sys_botbase.active:
-            current_label = self.tools_menu.entrycget(self.sysbot_menu_index, "label")
-            if current_label != "Sys-Botbase":
-                self.tools_menu.entryconfigure(self.sysbot_menu_index,
-                                               label="Sys-Botbase",
-                                               command=self._start_sysbot)
+        if not self.sys_botbase.active and self.sysbot_menu_index is not None:
+            self.tools_menu.entryconfigure(self.sysbot_menu_index,
+                                           label="Sys-Botbase",
+                                           command=self._start_sysbot)
         slots = self.client.available_slots
         if self.mode == "tabs":
             if len(slots) > 4:
