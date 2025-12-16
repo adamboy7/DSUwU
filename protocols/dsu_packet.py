@@ -88,17 +88,18 @@ def queue_packet(pkt: bytes, addr: tuple[str, int], desc: str | None = None) -> 
     send_queue.put((pkt, addr, desc))
 
 
-def build_header(msg_type: int, payload: bytes) -> bytes:
+def build_header(msg_type: int, payload: bytes, protocol_version: int | None = None) -> bytes:
     """Build a DSU packet header for ``msg_type`` and ``payload``."""
+    version = PROTOCOL_VERSION if protocol_version is None else protocol_version
     msg = struct.pack('<I', msg_type) + payload
     length = len(msg)
-    header = struct.pack('<4sHHII', b'DSUS', PROTOCOL_VERSION, length, 0, net_cfg.server_id)
+    header = struct.pack('<4sHHII', b'DSUS', version, length, 0, net_cfg.server_id)
     crc = crc_packet(header, msg)
-    header = struct.pack('<4sHHII', b'DSUS', PROTOCOL_VERSION, length, crc, net_cfg.server_id)
+    header = struct.pack('<4sHHII', b'DSUS', version, length, crc, net_cfg.server_id)
     return header + msg
 
 
-def send_port_info(addr, slot):
+def send_port_info(addr, slot, protocol_version: int | None = None):
     if slot >= net_cfg.soft_slot_limit:
         print("Warning: slots above 255 cannot be reported to the client")
         return
@@ -116,11 +117,11 @@ def send_port_info(addr, slot):
             mac_address,
             state.battery,
         )
-    packet = build_header(DSU_port_info, payload)
+    packet = build_header(DSU_port_info, payload, protocol_version=protocol_version)
     queue_packet(packet, addr, f"port info slot {slot}")
 
 
-def send_port_disconnect(addr, slot):
+def send_port_disconnect(addr, slot, protocol_version: int | None = None):
     """Send a port info packet indicating the slot is disconnected."""
     if slot >= net_cfg.soft_slot_limit:
         print("Warning: slots above 255 cannot be reported to the client")
@@ -130,19 +131,19 @@ def send_port_disconnect(addr, slot):
     # payload with zeros which always reported slot 0, leading clients
     # to believe an extra controller existed.
     payload = struct.pack("<4B6sB", slot, 0, 0, 0, b"\x00" * 6, 0)
-    packet = build_header(DSU_port_info, payload)
+    packet = build_header(DSU_port_info, payload, protocol_version=protocol_version)
     queue_packet(packet, addr, f"port disconnect slot {slot}")
 
 
-def handle_version_request(addr):
+def handle_version_request(addr, protocol_version: int):
     payload = struct.pack('<I H', DSU_version_response, PROTOCOL_VERSION)
-    packet = build_header(DSU_version_response, payload[4:])
+    packet = build_header(DSU_version_response, payload[4:], protocol_version=protocol_version)
     info = net_cfg.ensure_client(addr)
     info['last_seen'] = time.time()
     queue_packet(packet, addr, "version response")
 
 
-def handle_list_ports(addr, data):
+def handle_list_ports(addr, data, protocol_version: int | None = None):
     """Respond to a list ports request."""
     if len(data) < 24:
         return
@@ -152,9 +153,9 @@ def handle_list_ports(addr, data):
     slots = data[24:24 + count]
     for slot in slots:
         if slot in net_cfg.known_slots:
-            send_port_info(addr, slot)
+            send_port_info(addr, slot, protocol_version=protocol_version)
         else:
-            send_port_disconnect(addr, slot)
+            send_port_disconnect(addr, slot, protocol_version=protocol_version)
 
 
 def handle_pad_data_request(addr, data):
@@ -183,7 +184,7 @@ def handle_pad_data_request(addr, data):
         info['registrations']['macs'][mac] = now
 
 
-def handle_motor_request(addr, data):
+def handle_motor_request(addr, data, protocol_version: int | None = None):
     """Respond with the number of rumble motors for a controller slot."""
     if len(data) < 28:
         return
@@ -202,7 +203,7 @@ def handle_motor_request(addr, data):
         or slot not in net_cfg.known_slots
     ):
         payload = struct.pack('<4B6s2B', slot, 0, 0, 0, b"\x00" * 6, 0, 0)
-        packet = build_header(DSU_motor_response, payload)
+        packet = build_header(DSU_motor_response, payload, protocol_version=protocol_version)
         queue_packet(packet, addr, f"motor count slot {slot} (disconnected)")
         return
 
@@ -218,7 +219,7 @@ def handle_motor_request(addr, data):
         state.battery,
     )
     payload += struct.pack('<B', motor_count)
-    packet = build_header(DSU_motor_response, payload)
+    packet = build_header(DSU_motor_response, payload, protocol_version=protocol_version)
     queue_packet(packet, addr, f"motor count slot {slot}")
 
 
@@ -269,6 +270,7 @@ def send_input(
     gyroscope=(0.0, 0.0, 0.0),
     connection_type=2,
     battery=5,
+    protocol_version: int | None = None,
 ):
     if slot >= net_cfg.soft_slot_limit:
         print("Warning: slots above 255 cannot be reported to the client")
@@ -278,7 +280,8 @@ def send_input(
             return
         net_cfg.known_slots.add(slot)
         for client in list(net_cfg.active_clients):
-            send_port_info(client, slot)
+            client_info = net_cfg.active_clients.get(client, {})
+            send_port_info(client, slot, protocol_version=client_info.get("protocol_version"))
 
     info = net_cfg.active_clients.get(addr)
     if info is None:
@@ -292,6 +295,11 @@ def send_input(
     touch2 = touchpad_input2 or touchpad_input()
 
     mac_address = net_cfg.slot_mac_addresses[slot]
+    ls_x, ls_y = L_stick
+    rs_x, rs_y = R_stick
+    dpad_up, dpad_right, dpad_down, dpad_left = dpad_analog
+    accel_x, accel_y, accel_z = accelerometer
+
     payload = struct.pack(
         '<4B6s2B',
         slot,
@@ -309,9 +317,14 @@ def send_input(
         buttons2,
         int(home),
         int(touch_button),
-        *L_stick,
-        *R_stick,
-        *dpad_analog,
+        ls_x,
+        255 - ls_y,
+        rs_x,
+        255 - rs_y,
+        dpad_left,
+        dpad_down,
+        dpad_right,
+        dpad_up,
         *face_analog,
         analog_R1,
         analog_L1,
@@ -321,8 +334,8 @@ def send_input(
     payload += struct.pack('<2B2H', *touch1)
     payload += struct.pack('<2B2H', *touch2)
     payload += struct.pack('<Q', motion_ts)
-    payload += struct.pack('<6f', *accelerometer, *gyroscope)
-    packet = build_header(DSU_button_response, payload)
+    payload += struct.pack('<6f', accel_x, accel_y, -accel_z, *gyroscope)
+    packet = build_header(DSU_button_response, payload, protocol_version=protocol_version)
     queue_packet(packet, addr, f"input slot {slot}")
 
     prev_state = net_cfg.last_button_states.get(slot)
