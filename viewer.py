@@ -273,9 +273,20 @@ class DSUClient:
         while self.running:
             now = time.time()
             if now - self.last_request > 1.0:
+                all_payload = struct.pack("<BB6s", 0, 0, b"\x00" * 6)
+                self._send(DSU_button_request, all_payload)
                 for slot in sorted(self.request_slots):
-                    pld = struct.pack("B", slot) + b"\x00" * 7
-                    self._send(DSU_button_request, pld)
+                    reg_flags = 0x01
+                    mac_bytes = b"\x00" * 6
+                    state = self.states.get(slot)
+                    if state is not None:
+                        try:
+                            mac_bytes = bytes.fromhex(state["mac"].replace(":", ""))
+                            reg_flags |= 0x02
+                        except ValueError:
+                            mac_bytes = b"\x00" * 6
+                    payload = struct.pack("<BB6s", reg_flags, slot, mac_bytes)
+                    self._send(DSU_button_request, payload)
                 self.last_request = now
 
             try:
