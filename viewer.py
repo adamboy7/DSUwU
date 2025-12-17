@@ -344,7 +344,7 @@ class DSUClient:
 
 
 class SysBotDialog(simpledialog.Dialog):
-    """Combined dialog for configuring Sys-Botbase forwarding."""
+    """Sys-Botbase configuration."""
 
     def __init__(self, parent, initial_ip: str | None, slots: list[int] | tuple[int, ...],
                  initial_rate: float | None, initial_smoothing: bool,
