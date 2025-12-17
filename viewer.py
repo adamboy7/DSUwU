@@ -344,7 +344,7 @@ class DSUClient:
 
 
 class SysBotDialog(simpledialog.Dialog):
-    """Combined dialog for configuring Sys-Botbase forwarding."""
+    """Sys-Botbase configuration."""
 
     def __init__(self, parent, initial_ip: str | None, slots: list[int] | tuple[int, ...],
                  initial_rate: float | None, initial_smoothing: bool,
@@ -385,7 +385,7 @@ class SysBotDialog(simpledialog.Dialog):
         self.smoothing_var = BooleanVar(value=self.initial_smoothing)
         ttk.Checkbutton(
             master,
-            text="Enable smoothing (ignore <3 unit stick changes)",
+            text="Anti-Jitter",
             variable=self.smoothing_var,
         ).grid(row=3, column=0, columnspan=2, sticky="w", padx=4, pady=4)
 
