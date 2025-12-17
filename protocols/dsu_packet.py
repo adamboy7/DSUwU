@@ -105,17 +105,18 @@ def send_port_info(addr, slot, protocol_version: int | None = None):
         return
     state = controller_states[slot]
     if state.connection_type == -1:
-        payload = b"\x00" * 11
+        payload = b"\x00" * 12
     else:
         mac_address = net_cfg.slot_mac_addresses[slot]
         payload = struct.pack(
-            '<4B6sB',
+            '<4B6s2B',
             slot,
             2,  # slot state - connected
             2,  # device model - full gyro
             state.connection_type,
             mac_address,
             state.battery,
+            0,  # reserved/isActive
         )
     packet = build_header(DSU_port_info, payload, protocol_version=protocol_version)
     queue_packet(packet, addr, f"port info slot {slot}")
@@ -130,7 +131,7 @@ def send_port_disconnect(addr, slot, protocol_version: int | None = None):
     # controller was disconnected. Older behaviour filled the entire
     # payload with zeros which always reported slot 0, leading clients
     # to believe an extra controller existed.
-    payload = struct.pack("<4B6sB", slot, 0, 0, 0, b"\x00" * 6, 0)
+    payload = struct.pack("<4B6s2B", slot, 0, 0, 0, b"\x00" * 6, 0, 0)
     packet = build_header(DSU_port_info, payload, protocol_version=protocol_version)
     queue_packet(packet, addr, f"port disconnect slot {slot}")
 
