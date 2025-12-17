@@ -146,6 +146,10 @@ def load_controller_loop(path: str):
 
     global _script_counter
 
+    project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir))
+    if project_root not in sys.path:
+        sys.path.insert(0, project_root)
+
     abs_path = os.path.abspath(path)
     mod_name = _loaded_script_names.get(abs_path)
     if mod_name is None:
@@ -313,5 +317,4 @@ def Replay_Inputs(path: str, slot: int | str, motion: str | None = None):
                 update(controller_states[target_slot], entry)
 
     return controller_loop
-
 
