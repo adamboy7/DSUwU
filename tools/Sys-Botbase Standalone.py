@@ -9,11 +9,17 @@ IP, optional polling rate limit, anti-jitter smoothing, and deadzone.
 from __future__ import annotations
 
 import logging
+import sys
 import threading
 import time
+from pathlib import Path
 from tkinter import BooleanVar, StringVar, Tk, messagebox, simpledialog, ttk
 
 import pygame
+
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.append(str(ROOT))
 
 from libraries.inputs import frame_delay
 from tools.sys_botbase import SysBotbaseBridge
