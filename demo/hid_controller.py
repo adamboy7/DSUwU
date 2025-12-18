@@ -52,11 +52,27 @@ def _open_controller(hid_module):
             print("hid_controller: 'hid' module is missing a Device factory; install hidapi?")
             return None, None
 
+        device_path = info.get("path")
         try:
-            device = device_cls(path=info.get("path"))
+            try:
+                device = device_cls(path=device_path)
+                opened = True
+            except TypeError:
+                device = device_cls()
+                opened = False
+
+            if not opened:
+                if hasattr(device, "open_path") and device_path is not None:
+                    device.open_path(device_path)
+                elif hasattr(device, "open"):
+                    device.open(info.get("vendor_id"), info.get("product_id"))
         except OSError as exc:
             name = SUPPORTED_CONTROLLERS.get(key, "unknown controller")
             print(f"hid_controller: failed to open {name}: {exc}")
+            try:
+                device.close()
+            except Exception:
+                pass
             continue
 
         name = SUPPORTED_CONTROLLERS.get(key, "controller")
