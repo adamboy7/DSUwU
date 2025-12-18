@@ -73,6 +73,20 @@ pressing **Parse** you can step through the packets using **Next** and
 **Prev** to inspect each message type, including decoded button states for
 input responses. (Helps answer the age old question, "WHY ISN'T IT WORKING?")
 
+## Pygame → Sys-Botbase (no DSU required)
+
+If you only need to forward a local controller to Sys-Botbase without running a
+DSU server, a standalone helper is available:
+
+```
+pip install pygame
+python -m tools.sysbot_pygame_direct
+```
+
+The Tk UI mirrors the Sys-Botbase options from the viewer so you can set the
+target IP, optional max packet rate, anti-jitter, and deadzone settings. A
+joystick index selector controls which pygame controller is polled.
+
 ## What the heck is a DSU?
 
 DSU is the standard based on the old Cemuhook plugin for motion data. Mainly implemented and supported by DS4Windows. It lets you send button, joystick, trigger, analog button presses, motion, touch, and "unofficially" vibration. A cross between a PS3/4 style controller and a WiiU gamepad, runs on UDP networking.
