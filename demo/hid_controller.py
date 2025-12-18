@@ -56,16 +56,15 @@ def _open_controller(hid_module):
         try:
             try:
                 device = device_cls(path=device_path)
-                opened = True
             except TypeError:
                 device = device_cls()
-                opened = False
 
-            if not opened:
-                if hasattr(device, "open_path") and device_path is not None:
-                    device.open_path(device_path)
-                elif hasattr(device, "open"):
-                    device.open(info.get("vendor_id"), info.get("product_id"))
+            if not _ensure_handle_open(device, info, device_path):
+                try:
+                    device.close()
+                except Exception:
+                    pass
+                continue
         except OSError as exc:
             name = SUPPORTED_CONTROLLERS.get(key, "unknown controller")
             print(f"hid_controller: failed to open {name}: {exc}")
@@ -80,6 +79,33 @@ def _open_controller(hid_module):
         return device, info
 
     return None, None
+
+
+def _ensure_handle_open(device, info, device_path) -> bool:
+    """Ensure a hidapi device handle is open.
+
+    Returns ``True`` if an open handle is available, otherwise ``False``.
+    """
+
+    vid = info.get("vendor_id")
+    pid = info.get("product_id")
+    serial = info.get("serial_number")
+
+    if hasattr(device, "open_path") and device_path is not None:
+        try:
+            device.open_path(device_path)
+            return True
+        except Exception as exc:  # pragma: no cover - runtime dependent
+            print(f"hid_controller: open_path failed: {exc}")
+
+    if hasattr(device, "open"):
+        try:
+            device.open(vid, pid, serial=serial) if serial is not None else device.open(vid, pid)
+            return True
+        except Exception as exc:  # pragma: no cover - runtime dependent
+            print(f"hid_controller: device.open failed: {exc}")
+
+    return False
 
 
 def _button_states(face: int, shoulders: int) -> dict[str, bool]:
@@ -167,9 +193,33 @@ def controller_loop(stop_event, controller_states, slot):
 
         try:
             report = device.read(78, timeout_ms=250)
+        except ValueError:
+            # Handle "not open" and similar errors by attempting to reopen once.
+            if not _ensure_handle_open(device, device_info or {}, device_info.get("path") if device_info else None):
+                try:
+                    device.close()
+                except Exception:
+                    pass
+                device = None
+                time.sleep(1)
+                continue
+            try:
+                report = device.read(78, timeout_ms=250)
+            except Exception as exc:
+                print(f"hid_controller: read failed after reopen: {exc}")
+                try:
+                    device.close()
+                except Exception:
+                    pass
+                device = None
+                time.sleep(1)
+                continue
         except OSError as exc:
             print(f"hid_controller: lost device ({exc}), waiting to reconnect...")
-            device.close()
+            try:
+                device.close()
+            except Exception:
+                pass
             device = None
             time.sleep(1)
             continue
@@ -178,7 +228,10 @@ def controller_loop(stop_event, controller_states, slot):
             time.sleep(frame_delay)
             continue
 
-        base, connection_type = _connection_from_report(report)
+        try:
+            base, connection_type = _connection_from_report(report)
+        except Exception:
+            base, connection_type = 0, 1
         min_length = base + 43  # Covers everything up to the second touch packet.
         if len(report) < min_length:
             continue
@@ -274,6 +327,12 @@ def controller_loop(stop_event, controller_states, slot):
         state.battery = _battery_from_power_byte(report[base + 30])
 
         time.sleep(frame_delay)
+
+    if device is not None:
+        try:
+            device.close()
+        except Exception:
+            pass
 
     if device is not None:
         device.close()
