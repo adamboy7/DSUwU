@@ -73,6 +73,8 @@ class SysBotbaseBridge:
         self._last_touch_active = False
         self._last_touch_pos: tuple[int, int] | None = None
         self._touch_source: tuple[int, int] | None = self.TOUCH_SOURCE_DEFAULT
+        self._touch_hold_ms: int = self.TOUCH_HOLD_MS
+        self._last_touch_sent: float = 0.0
 
     @property
     def active(self) -> bool:
@@ -117,6 +119,9 @@ class SysBotbaseBridge:
             self._touch_source = (touch_source_width, touch_source_height)
         else:
             self._touch_source = self.TOUCH_SOURCE_DEFAULT
+        base_hold = (self._poll_interval or 0.0) * 1000
+        self._touch_hold_ms = max(self.TOUCH_HOLD_MS, int(base_hold) + 10)
+        self._last_touch_sent = 0.0
         if self._max_rate_hz:
             self._stop_event = threading.Event()
             self._pending_event = threading.Event()
@@ -193,6 +198,8 @@ class SysBotbaseBridge:
         self._last_touch_active = False
         self._last_touch_pos = None
         self._touch_source = self.TOUCH_SOURCE_DEFAULT
+        self._touch_hold_ms = self.TOUCH_HOLD_MS
+        self._last_touch_sent = 0.0
         if self.client.state_callback is self._callback:
             self.client.state_callback = self._prev_callback
         self._prev_callback = None
@@ -300,10 +307,13 @@ class SysBotbaseBridge:
                 self._send_command("touchCancel")
             self._last_touch_active = False
             self._last_touch_pos = None
+            self._last_touch_sent = 0.0
             return
 
         x_raw, y_raw = int(pos[0]), int(pos[1])
         x, y = self._scale_touch_point(x_raw, y_raw)
+        hold_ms = self._touch_hold_ms
+        now = time.monotonic()
         if (
             self._smoothing_enabled
             and self._last_touch_active
@@ -312,14 +322,21 @@ class SysBotbaseBridge:
             dx = abs(x - self._last_touch_pos[0])
             dy = abs(y - self._last_touch_pos[1])
             if max(dx, dy) < 3:
-                return
+                if now - self._last_touch_sent < (hold_ms / 1000) * 0.5:
+                    return
 
         if not self._last_touch_active or self._last_touch_pos != (x, y):
             if self._last_touch_active:
                 self._send_command("touchCancel")
-            self._send_command(f"touchHold {x} {y} {self.TOUCH_HOLD_MS}")
-            self._last_touch_active = True
-            self._last_touch_pos = (x, y)
+        else:
+            # Same position: refresh hold to keep contact down.
+            if now - self._last_touch_sent < (hold_ms / 1000) * 0.5:
+                return
+
+        self._send_command(f"touchHold {x} {y} {hold_ms}")
+        self._last_touch_active = True
+        self._last_touch_pos = (x, y)
+        self._last_touch_sent = now
 
     def _send_neutral_state(self) -> None:
         """Release any held inputs and recenter sticks."""
