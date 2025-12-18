@@ -65,6 +65,7 @@ class SysBotbaseBridge:
         self._stop_event: threading.Event | None = None
         self._pending_event: threading.Event | None = None
         self._pending_sticks: tuple[int, int, int, int] | None = None
+        self._pending_touch: dict | None = None
         self._pending_dirty: bool = False
         self._send_thread: threading.Thread | None = None
         self._smoothing_enabled = False
@@ -120,6 +121,7 @@ class SysBotbaseBridge:
             self._stop_event = threading.Event()
             self._pending_event = threading.Event()
             self._pending_sticks = None
+            self._pending_touch = None
             self._pending_dirty = False
             self._send_thread = threading.Thread(target=self._send_loop, daemon=True)
             self._send_thread.start()
@@ -135,14 +137,16 @@ class SysBotbaseBridge:
             mapped_buttons = self._map_buttons(state)
             self._dispatch_buttons(mapped_buttons)
             sticks = self._extract_sticks(state)
+            touch_state = state.get("touch1")
             if self._max_rate_hz:
                 self._pending_sticks = sticks
+                self._pending_touch = touch_state
                 self._pending_dirty = True
                 if self._pending_event is not None:
                     self._pending_event.set()
             else:
                 self._dispatch_sticks(sticks)
-            self._dispatch_touch(state.get("touch1"))
+                self._dispatch_touch(touch_state)
 
         self._callback = callback
         self.client.state_callback = self._callback
@@ -160,6 +164,7 @@ class SysBotbaseBridge:
         self._stop_event = None
         self._pending_event = None
         self._pending_sticks = None
+        self._pending_touch = None
         self._pending_dirty = False
         self._max_rate_hz = None
         self._poll_interval = None
@@ -234,10 +239,13 @@ class SysBotbaseBridge:
             now = time.monotonic()
             if now < next_send:
                 continue
-            if not self._pending_dirty or self._pending_sticks is None:
+            if not self._pending_dirty:
                 next_send = now + self._poll_interval
                 continue
-            self._dispatch_sticks(self._pending_sticks)
+            if self._pending_touch is not None:
+                self._dispatch_touch(self._pending_touch)
+            if self._pending_sticks is not None:
+                self._dispatch_sticks(self._pending_sticks)
             self._pending_dirty = False
             next_send = now + self._poll_interval
 
