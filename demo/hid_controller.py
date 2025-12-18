@@ -162,7 +162,9 @@ def _connection_from_report(report: list[int]) -> tuple[int, int]:
 
     if report and report[0] in (0x11, 0x15):
         return 2, 2  # Bluetooth reports include a 2-byte header.
-    return 1, 1  # USB reports use a 1-byte report ID header.
+    if report and report[0] in (0x01, 0x05):
+        return 0, 1  # USB reports keep the report ID at byte 0, data starts at byte 1.
+    return 0, 1  # Fallback to USB-style layout.
 
 
 def controller_loop(stop_event, controller_states, slot):
@@ -333,6 +335,3 @@ def controller_loop(stop_event, controller_states, slot):
             device.close()
         except Exception:
             pass
-
-    if device is not None:
-        device.close()
