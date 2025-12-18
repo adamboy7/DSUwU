@@ -25,6 +25,9 @@ disabled by default but can be manually enabled with `--controller0-script`,
 which starts disconnected unless a script is specified. A
 `demo/pygame_controller.py` script is also provided for capturing real controller
 input using the `pygame` library, if for some reason you don't want to use DS4Windows ¯\_(ツ)_/¯
+`demo/hid_controller.py` provides an alternative that reads DualShock/DualSense
+HID reports directly to capture touch, motion, and MAC details when the
+optional `hidapi` dependency is available.
 
 Slots beyond four are non‑standard but can be enabled by providing
 `--controller5-script`, `--controller6-script`, and so on, up to a soft limit of
