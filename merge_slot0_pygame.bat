@@ -1,0 +1,1 @@
+python server.py --server-id 0xDEADBEEF --controller0-script demo/slot0_merger.py --controller1-script demo/pygame_controller.py --controller2-script demo/pygame_controller2.py --controller3-script none

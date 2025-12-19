@@ -26,6 +26,22 @@ which starts disconnected unless a script is specified. A
 `demo/DS4-HID.py` script is also provided for capturing real controller
 input and motion data from HID, or a more universal `demo/pygame_controller.py` using the `pygame` library, if for some reason you don't want to use DS4Windows ¯\_(ツ)_/¯ (DS4 windows runs faster with lower input latency, but mine has scripting support)
 
+A helper script `demo/slot0_merger.py` merges slot 1 and slot 2 input into slot
+0 by XORing button masks and choosing the stick/trigger input farther from
+neutral (slot 1 wins ties). This lets you treat two pygame-backed controllers as
+one combined slot. Pair it with `demo/pygame_controller.py` (default joystick
+index 0) and `demo/pygame_controller2.py` (joystick index 1) to capture two
+physical controllers. For example:
+
+```
+python server.py --controller0-script demo/slot0_merger.py \
+                 --controller1-script demo/pygame_controller.py \
+                 --controller2-script demo/pygame_controller2.py \
+                 --controller3-script none
+```
+
+Windows users can run `merge_slot0_pygame.bat` for the same wiring.
+
 Slots beyond four are non‑standard but can be enabled by providing
 `--controller5-script`, `--controller6-script`, and so on, up to a soft limit of
 256. (Slots beyond 256 can still technically be created, but standard port info
