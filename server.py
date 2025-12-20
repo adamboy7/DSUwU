@@ -126,7 +126,11 @@ def start_server(port: int = net_cfg.UDP_port,
     net_cfg.ensure_slot_count(max_slot)
 
     slot_range = range(start_slot, max_slot + 1)
+    state_dirty = threading.Event()
     controller_states = ControllerStateDict({slot: ControllerState(connected=False) for slot in slot_range})
+    controller_states._dirty_event = state_dirty
+    for state in controller_states.values():
+        state._dirty_event = state_dirty
     stop_event = threading.Event()
 
     def _thread_main() -> None:
@@ -186,11 +190,9 @@ def start_server(port: int = net_cfg.UDP_port,
         protocol.initialize(sock, controller_states, stop_event, idle_slots)
 
         try:
-            update_interval = 0.001
-            next_update = time.monotonic()
+            update_timeout = 0.005
             while not stop_event.is_set():
-                timeout = max(0, next_update - time.monotonic())
-                readable, _, _ = select.select([sock], [], [], timeout)
+                readable, _, _ = select.select([sock], [], [], 0)
 
                 if stop_event.is_set():
                     break
@@ -198,10 +200,12 @@ def start_server(port: int = net_cfg.UDP_port,
                 if readable:
                     protocol.handle_requests(sock)
 
-                now = time.monotonic()
-                if now >= next_update:
-                    protocol.update_clients(controller_states)
-                    next_update = now + update_interval
+                state_dirty.wait(timeout=update_timeout)
+                if stop_event.is_set():
+                    break
+
+                protocol.update_clients(controller_states)
+                state_dirty.clear()
         except Exception as exc:
             print(f"Server loop crashed: {exc}")
         finally:

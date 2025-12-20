@@ -1,4 +1,5 @@
 from typing import Optional, Tuple
+import threading
 
 from .net_config import stick_deadzone
 from dataclasses import dataclass, field
@@ -99,6 +100,8 @@ class ControllerState:
         default_factory=lambda: (0.0,) * net_cfg.motor_count
     )
 
+    _dirty_event: threading.Event | None = field(default=None, repr=False, compare=False)
+
     def is_idle(self, dz: int = stick_deadzone) -> bool:
         """Return ``True`` if no buttons, sticks, triggers or touches are active.
 
@@ -128,6 +131,14 @@ class ControllerState:
 
         self.connected = not self.is_idle(dz)
 
+    def __setattr__(self, name, value):
+        object.__setattr__(self, name, value)
+        if name == "_dirty_event":
+            return
+        dirty_event = getattr(self, "_dirty_event", None)
+        if dirty_event is not None:
+            dirty_event.set()
+
 
 class ControllerStateDict(dict):
     """Mapping of controller slot numbers to :class:`ControllerState`.
@@ -141,5 +152,8 @@ class ControllerStateDict(dict):
             raise KeyError(key)
         net_cfg.ensure_slot(key)
         value = ControllerState(connected=False)
+        dirty_event = getattr(self, "_dirty_event", None)
+        if dirty_event is not None:
+            value._dirty_event = dirty_event
         self[key] = value
         return value
