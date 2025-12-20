@@ -16,6 +16,10 @@ Both `pulse_button` and `pulse_button_xor` accept button names from either mask
 ``l2``/``r2``/``l1``/``r1``/``triangle``/``circle``/``cross``/``square``) as
 well as ``home``.
 
+**Hold a button:** `hold_button(controller_states, slot, **button_kwargs)` keeps the provided buttons pressed indefinitely, until you explicitly release them with `release_button`. Accepts the same button names as `pulse_button`.
+
+**Release a held button:** `release_button(controller_states, slot, **button_kwargs)` clears only the buttons you specify (matching the names from `pulse_button`).
+
 **Toggle a button:** `pulse_button_xor(frame, controller_states, slot, *buttons)`, **frame** being how many 1/60ths of a second you want to press the button, **controller_states** being the server's controller dictionary, **slot** being the controller slot number you want to update, and ``*buttons`` representing one or more button names (e.g. ``"circle"``).
 Allows you to selectively write button states without modifying other buttons that share a "button mask". Useful if multiple functions or threads are sharing a slot. Keyword arguments are still accepted but ``False`` values are ignored.
 

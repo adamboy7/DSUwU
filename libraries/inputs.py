@@ -46,6 +46,54 @@ _MISC_BUTTONS = {"home", "touch"}
 VALID_BUTTONS = _MASK1_BUTTONS | _MASK2_BUTTONS | _MISC_BUTTONS
 
 
+def hold_button(controller_states, slot, **button_kwargs):
+    """Press specific buttons on ``controller_states`` until released.
+
+    Supports all buttons from ``button_mask_1`` and ``button_mask_2`` as well as
+    the ``home`` and ``touch`` buttons. Unlike :func:`pulse_button`, the button
+    states remain active until :func:`release_button` (or other code) clears
+    them.
+    """
+
+    invalid_keys = set(button_kwargs) - VALID_BUTTONS
+    if invalid_keys:
+        raise ValueError(f"invalid button(s): {', '.join(sorted(invalid_keys))}")
+
+    state = controller_states[slot]
+    mask1_args = {k: button_kwargs.get(k, False) for k in _MASK1_BUTTONS}
+    mask2_args = {k: button_kwargs.get(k, False) for k in _MASK2_BUTTONS}
+
+    state.buttons1 |= button_mask_1(**mask1_args)
+    state.buttons2 |= button_mask_2(**mask2_args)
+    if button_kwargs.get("home"):
+        state.home = True
+    if button_kwargs.get("touch"):
+        state.touch_button = True
+
+
+def release_button(controller_states, slot, **button_kwargs):
+    """Release specific buttons previously set with :func:`hold_button`.
+
+    Only buttons provided in ``button_kwargs`` are affected. Passing an unknown
+    button name raises ``ValueError``.
+    """
+
+    invalid_keys = set(button_kwargs) - VALID_BUTTONS
+    if invalid_keys:
+        raise ValueError(f"invalid button(s): {', '.join(sorted(invalid_keys))}")
+
+    state = controller_states[slot]
+    mask1_args = {k: button_kwargs.get(k, False) for k in _MASK1_BUTTONS}
+    mask2_args = {k: button_kwargs.get(k, False) for k in _MASK2_BUTTONS}
+
+    state.buttons1 &= ~button_mask_1(**mask1_args) & 0xFF
+    state.buttons2 &= ~button_mask_2(**mask2_args) & 0xFF
+    if button_kwargs.get("home"):
+        state.home = False
+    if button_kwargs.get("touch"):
+        state.touch_button = False
+
+
 def pulse_button(frame, controller_states, slot, **button_kwargs):
     """Press specific buttons for ``frame`` frames then release.
 
