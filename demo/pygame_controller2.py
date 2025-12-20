@@ -1,3 +1,8 @@
+"""Capture input from the second connected joystick.
+
+This variant of ``pygame_controller`` sets ``JOYSTICK_INDEX`` to ``1`` so it
+reads the second controller device (zero-based)."""
+
 import time
 import pygame
 
@@ -7,7 +12,7 @@ from libraries.masks import button_mask_1, button_mask_2
 # Index of the pygame joystick to read input from. Increase this if you
 # have multiple controllers connected and want to use one beyond the
 # first.
-JOYSTICK_INDEX = 0
+JOYSTICK_INDEX = 1
 
 
 def _axis_to_byte(value: float) -> int:

@@ -23,8 +23,8 @@ example controller scripts found in `demo/` to generate input. Custom scripts
 can be supplied per slot with the `--controllerN-script` arguments. Slot 0 is
 disabled by default but can be manually enabled with `--controller0-script`,
 which starts disconnected unless a script is specified. A
-`demo/pygame_controller.py` script is also provided for capturing real controller
-input using the `pygame` library, if for some reason you don't want to use DS4Windows ¯\_(ツ)_/¯
+`demo/DS4-HID.py` script is also provided for capturing real controller
+input and motion data from HID, or a more universal `demo/pygame_controller.py` using the `pygame` library, if for some reason you don't want to use DS4Windows ¯\_(ツ)_/¯ (DS4 windows runs faster with lower input latency, but mine has scripting support)
 
 Slots beyond four are non‑standard but can be enabled by providing
 `--controller5-script`, `--controller6-script`, and so on, up to a soft limit of
@@ -72,6 +72,8 @@ DSU packet bytes can be pasted (for example from a Wireshark capture). After
 pressing **Parse** you can step through the packets using **Next** and
 **Prev** to inspect each message type, including decoded button states for
 input responses. (Helps answer the age old question, "WHY ISN'T IT WORKING?")
+
+**Tools → Sys-Botbase**. Allows you to mirror a selected slot number to a desired IP address, for use with the Switch CFW module [Sys-Botbase](https://github.com/olliz0r/sys-botbase). This is primarily intended for scripted inputs, but if you just want to be able to use a controller with Sys-Botbase you can run `tools/Sys-Botbase Standalone.py` directly instead to skip a little network latency.
 
 ## What the heck is a DSU?
 

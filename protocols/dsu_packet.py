@@ -19,9 +19,22 @@ from .dsu_constants import (
 )
 
 
-def crc_packet(header: bytes, payload: bytes) -> int:
-    """Return CRC32 for a packet."""
-    data = header[:8] + b"\x00\x00\x00\x00" + header[12:] + payload
+def crc_packet(header: bytes | memoryview, payload: bytes | memoryview) -> int:
+    """Return CRC32 for a packet.
+
+    ``header`` and ``payload`` may be any object supporting the buffer protocol.
+    They are converted to :class:`bytes` slices to ensure compatibility when the
+    caller provides a ``memoryview`` (e.g. when parsing packets directly from a
+    receive buffer).
+    """
+    header_view = memoryview(header)
+    payload_view = memoryview(payload)
+    data = (
+        header_view[:8].tobytes()
+        + b"\x00\x00\x00\x00"
+        + header_view[12:].tobytes()
+        + payload_view.tobytes()
+    )
     return zlib.crc32(data) & 0xFFFFFFFF
 
 # Socket used for sending packets. The server assigns this when initialized.
@@ -105,17 +118,18 @@ def send_port_info(addr, slot, protocol_version: int | None = None):
         return
     state = controller_states[slot]
     if state.connection_type == -1:
-        payload = b"\x00" * 11
+        payload = b"\x00" * 12
     else:
         mac_address = net_cfg.slot_mac_addresses[slot]
         payload = struct.pack(
-            '<4B6sB',
+            '<4B6s2B',
             slot,
             2,  # slot state - connected
             2,  # device model - full gyro
             state.connection_type,
             mac_address,
             state.battery,
+            0,  # reserved/isActive
         )
     packet = build_header(DSU_port_info, payload, protocol_version=protocol_version)
     queue_packet(packet, addr, f"port info slot {slot}")
@@ -130,14 +144,18 @@ def send_port_disconnect(addr, slot, protocol_version: int | None = None):
     # controller was disconnected. Older behaviour filled the entire
     # payload with zeros which always reported slot 0, leading clients
     # to believe an extra controller existed.
-    payload = struct.pack("<4B6sB", slot, 0, 0, 0, b"\x00" * 6, 0)
+    payload = struct.pack("<4B6s2B", slot, 0, 0, 0, b"\x00" * 6, 0, 0)
     packet = build_header(DSU_port_info, payload, protocol_version=protocol_version)
     queue_packet(packet, addr, f"port disconnect slot {slot}")
 
 
-def handle_version_request(addr, protocol_version: int):
-    payload = struct.pack('<I H', DSU_version_response, PROTOCOL_VERSION)
-    packet = build_header(DSU_version_response, payload[4:], protocol_version=protocol_version)
+def handle_version_request(addr, _protocol_version: int):
+    payload = struct.pack('<HH', PROTOCOL_VERSION, 0)
+    packet = build_header(
+        DSU_version_response,
+        payload,
+        protocol_version=PROTOCOL_VERSION,
+    )
     info = net_cfg.ensure_client(addr)
     info['last_seen'] = time.time()
     queue_packet(packet, addr, "version response")
@@ -163,7 +181,7 @@ def handle_pad_data_request(addr, data):
         return
     reg_flags = data[20]
     requested_slot = data[21]
-    mac = data[22:28]
+    mac = bytes(data[22:28])
     info = net_cfg.ensure_client(addr)
     info['last_seen'] = time.time()
     info['registrations'].setdefault('slots', {})

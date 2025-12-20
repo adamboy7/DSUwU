@@ -3,6 +3,7 @@ import socket
 import threading
 import argparse
 import os
+import select
 
 import libraries.net_config as net_cfg
 from libraries.masks import ControllerState, ControllerStateDict
@@ -185,10 +186,23 @@ def start_server(port: int = net_cfg.UDP_port,
         protocol.initialize(sock, controller_states, stop_event, idle_slots)
 
         try:
+            update_interval = 0.001
+            next_update = time.monotonic()
             while not stop_event.is_set():
-                protocol.handle_requests(sock)
-                protocol.update_clients(controller_states)
-                time.sleep(0.001)
+                timeout = max(0, next_update - time.monotonic())
+                readable, _, _ = select.select([sock], [], [], timeout)
+
+                if stop_event.is_set():
+                    break
+
+                if readable:
+                    protocol.handle_requests(sock)
+
+                now = time.monotonic()
+                while now >= next_update:
+                    protocol.update_clients(controller_states)
+                    next_update += update_interval
+                    now = time.monotonic()
         except Exception as exc:
             print(f"Server loop crashed: {exc}")
         finally:

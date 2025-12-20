@@ -1,0 +1,153 @@
+"""Merge slot 1 and slot 2 inputs into slot 0.
+
+This script keeps slot 0 connected, ORs the button masks from slots 1 and 2
+each frame, and chooses whichever stick/trigger input is farther from neutral
+for the merged result (slot 1 wins ties). That makes it possible to treat two
+physical controllers as a single combined controller on slot 0.
+"""
+
+import time
+
+from libraries.inputs import frame_delay
+
+PRIMARY_STICK_SLOT = 1
+SECONDARY_SLOT = 2
+
+NEUTRAL_STICK_VALUE = 128
+ALLOW_OPPOSITE_DPAD = True  # Allow up/down or left/right to be merged simultaneously
+
+
+def _apply_axis_lock(lock, negative_pressed, positive_pressed):
+    """Apply axis lock semantics to avoid opposite directions at once."""
+
+    if lock == "negative":
+        if negative_pressed:
+            return lock, True, False
+        if positive_pressed:
+            return "positive", False, True
+        return None, False, False
+
+    if lock == "positive":
+        if positive_pressed:
+            return lock, False, True
+        if negative_pressed:
+            return "negative", True, False
+        return None, False, False
+
+    if negative_pressed and not positive_pressed:
+        return "negative", True, False
+    if positive_pressed and not negative_pressed:
+        return "positive", False, True
+    return None, False, False
+
+
+def _merge_dpad_analog(primary_analog, secondary_analog):
+    """Return per-direction maximum analog values from both controllers."""
+
+    return tuple(max(p, s) for p, s in zip(primary_analog, secondary_analog))
+
+
+def _stick_priority(stick):
+    """Return a squared distance from neutral to compare stick displacement."""
+
+    dx = stick[0] - NEUTRAL_STICK_VALUE
+    dy = stick[1] - NEUTRAL_STICK_VALUE
+    return dx * dx + dy * dy
+
+
+def _pick_stick(primary_stick, secondary_stick):
+    """Return the stick farther from neutral, preferring ``primary_stick``."""
+
+    if _stick_priority(secondary_stick) > _stick_priority(primary_stick):
+        return secondary_stick
+    return primary_stick
+
+
+def _pick_trigger(primary_trigger, secondary_trigger):
+    """Return the trigger value with greater displacement from 0."""
+
+    if abs(secondary_trigger) > abs(primary_trigger):
+        return secondary_trigger
+    return primary_trigger
+
+
+def controller_loop(stop_event, controller_states, slot):
+    """Continuously merge controller inputs from slots 1 and 2 into ``slot``.
+
+    Slot 1 contributes stick/analog data when it is farther from neutral, while
+    button masks are ORed between slots 1 and 2. This intentionally tolerates
+    races between writer threads.
+    """
+
+    vertical_lock = None
+    horizontal_lock = None
+
+    while not stop_event.is_set():
+        merged_state = controller_states[slot]
+        primary_state = controller_states[PRIMARY_STICK_SLOT]
+        secondary_state = controller_states[SECONDARY_SLOT]
+
+        merged_state.connected = True
+
+        merged_buttons1 = primary_state.buttons1 | secondary_state.buttons1
+        merged_state.buttons2 = primary_state.buttons2 | secondary_state.buttons2
+
+        merged_dpad_analog = _merge_dpad_analog(
+            primary_state.dpad_analog, secondary_state.dpad_analog
+        )
+
+        if not ALLOW_OPPOSITE_DPAD:
+            left_pressed = bool(merged_buttons1 & 0x80)
+            right_pressed = bool(merged_buttons1 & 0x20)
+            down_pressed = bool(merged_buttons1 & 0x40)
+            up_pressed = bool(merged_buttons1 & 0x10)
+
+            horizontal_lock, left_active, right_active = _apply_axis_lock(
+                horizontal_lock, left_pressed, right_pressed
+            )
+            vertical_lock, down_active, up_active = _apply_axis_lock(
+                vertical_lock, down_pressed, up_pressed
+            )
+
+            merged_buttons1 &= ~(0x80 | 0x40 | 0x20 | 0x10)
+            merged_buttons1 |= (
+                (0x80 if left_active else 0)
+                | (0x40 if down_active else 0)
+                | (0x20 if right_active else 0)
+                | (0x10 if up_active else 0)
+            )
+
+            merged_dpad_analog = (
+                merged_dpad_analog[0] if left_active else 0,
+                merged_dpad_analog[1] if down_active else 0,
+                merged_dpad_analog[2] if right_active else 0,
+                merged_dpad_analog[3] if up_active else 0,
+            )
+
+        merged_state.buttons1 = merged_buttons1
+
+        merged_state.L_stick = _pick_stick(primary_state.L_stick, secondary_state.L_stick)
+        merged_state.R_stick = _pick_stick(primary_state.R_stick, secondary_state.R_stick)
+
+        merged_state.analog_L1 = _pick_trigger(primary_state.analog_L1, secondary_state.analog_L1)
+        merged_state.analog_R1 = _pick_trigger(primary_state.analog_R1, secondary_state.analog_R1)
+        merged_state.analog_L2 = _pick_trigger(primary_state.analog_L2, secondary_state.analog_L2)
+        merged_state.analog_R2 = _pick_trigger(primary_state.analog_R2, secondary_state.analog_R2)
+
+        merged_state.dpad_analog = merged_dpad_analog
+        merged_state.face_analog = primary_state.face_analog
+
+        merged_state.touchpad_input1 = primary_state.touchpad_input1
+        merged_state.touchpad_input2 = primary_state.touchpad_input2
+
+        merged_state.motion_timestamp = primary_state.motion_timestamp
+        merged_state.accelerometer = primary_state.accelerometer
+        merged_state.gyroscope = primary_state.gyroscope
+
+        merged_state.home = primary_state.home
+        merged_state.touch_button = primary_state.touch_button
+
+        merged_state.connection_type = primary_state.connection_type
+        merged_state.battery = primary_state.battery
+
+        time.sleep(frame_delay)

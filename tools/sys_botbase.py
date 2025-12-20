@@ -26,6 +26,10 @@ class SysBotbaseBridge:
     """Stream DSU controller state to a sys-botbase endpoint."""
 
     DEFAULT_PORT = 6000
+    TOUCH_HOLD_MS = 17
+    TOUCH_TARGET_WIDTH = 1280
+    TOUCH_TARGET_HEIGHT = 720
+    TOUCH_SOURCE_DEFAULT = (1920, 942)
     BUTTON_MAP = {
         # DSU uses Xbox-style face labels; sys-botbase expects Switch layout.
         "A": "B",
@@ -61,17 +65,25 @@ class SysBotbaseBridge:
         self._stop_event: threading.Event | None = None
         self._pending_event: threading.Event | None = None
         self._pending_sticks: tuple[int, int, int, int] | None = None
+        self._pending_touch: dict | None = None
         self._pending_dirty: bool = False
         self._send_thread: threading.Thread | None = None
         self._smoothing_enabled = False
         self._deadzone: int | None = None
+        self._last_touch_active = False
+        self._last_touch_pos: tuple[int, int] | None = None
+        self._touch_source: tuple[int, int] | None = self.TOUCH_SOURCE_DEFAULT
+        self._touch_hold_ms: int = self.TOUCH_HOLD_MS
+        self._last_touch_sent: float = 0.0
 
     @property
     def active(self) -> bool:
         return self.sock is not None
 
     def start(self, ip: str, slot: int, max_rate_hz: float | None = None,
-              smoothing: bool = False, deadzone: int | None = None) -> bool:
+              smoothing: bool = False, deadzone: int | None = None,
+              touch_source_width: int | None = None,
+              touch_source_height: int | None = None) -> bool:
         """Connect to sys-botbase at ``ip`` and forward updates from ``slot``.
 
         When ``max_rate_hz`` is provided, outgoing packets are throttled to the
@@ -101,10 +113,20 @@ class SysBotbaseBridge:
         self._poll_interval = (1.0 / self._max_rate_hz) if self._max_rate_hz else None
         self._smoothing_enabled = smoothing
         self._deadzone = deadzone if deadzone and deadzone > 0 else None
+        self._last_touch_active = False
+        self._last_touch_pos = None
+        if touch_source_width and touch_source_height:
+            self._touch_source = (touch_source_width, touch_source_height)
+        else:
+            self._touch_source = self.TOUCH_SOURCE_DEFAULT
+        base_hold = (self._poll_interval or 0.0) * 1000
+        self._touch_hold_ms = max(self.TOUCH_HOLD_MS, int(base_hold) + 10)
+        self._last_touch_sent = 0.0
         if self._max_rate_hz:
             self._stop_event = threading.Event()
             self._pending_event = threading.Event()
             self._pending_sticks = None
+            self._pending_touch = None
             self._pending_dirty = False
             self._send_thread = threading.Thread(target=self._send_loop, daemon=True)
             self._send_thread.start()
@@ -120,13 +142,16 @@ class SysBotbaseBridge:
             mapped_buttons = self._map_buttons(state)
             self._dispatch_buttons(mapped_buttons)
             sticks = self._extract_sticks(state)
+            touch_state = state.get("touch1")
             if self._max_rate_hz:
                 self._pending_sticks = sticks
+                self._pending_touch = touch_state
                 self._pending_dirty = True
                 if self._pending_event is not None:
                     self._pending_event.set()
             else:
                 self._dispatch_sticks(sticks)
+                self._dispatch_touch(touch_state)
 
         self._callback = callback
         self.client.state_callback = self._callback
@@ -144,6 +169,7 @@ class SysBotbaseBridge:
         self._stop_event = None
         self._pending_event = None
         self._pending_sticks = None
+        self._pending_touch = None
         self._pending_dirty = False
         self._max_rate_hz = None
         self._poll_interval = None
@@ -169,6 +195,11 @@ class SysBotbaseBridge:
         self._last_raw_sticks = None
         self._smoothing_enabled = False
         self._deadzone = None
+        self._last_touch_active = False
+        self._last_touch_pos = None
+        self._touch_source = self.TOUCH_SOURCE_DEFAULT
+        self._touch_hold_ms = self.TOUCH_HOLD_MS
+        self._last_touch_sent = 0.0
         if self.client.state_callback is self._callback:
             self.client.state_callback = self._prev_callback
         self._prev_callback = None
@@ -190,6 +221,16 @@ class SysBotbaseBridge:
                           self.target_ip, exc)
             self.stop()
 
+    def _dispatch_touch(self, touch: dict | None) -> None:
+        if touch is None:
+            return
+        try:
+            self._sync_touch(touch)
+        except OSError as exc:
+            logging.error("Failed to forward touch to sys-botbase at %s: %s",
+                          self.target_ip, exc)
+            self.stop()
+
     def _send_loop(self) -> None:
         stop_event = self._stop_event
         pending_event = self._pending_event
@@ -205,10 +246,13 @@ class SysBotbaseBridge:
             now = time.monotonic()
             if now < next_send:
                 continue
-            if not self._pending_dirty or self._pending_sticks is None:
+            if not self._pending_dirty:
                 next_send = now + self._poll_interval
                 continue
-            self._dispatch_sticks(self._pending_sticks)
+            if self._pending_touch is not None:
+                self._dispatch_touch(self._pending_touch)
+            if self._pending_sticks is not None:
+                self._dispatch_sticks(self._pending_sticks)
             self._pending_dirty = False
             next_send = now + self._poll_interval
 
@@ -255,6 +299,45 @@ class SysBotbaseBridge:
         self._last_sticks = sticks
         self._last_raw_sticks = raw_sticks
 
+    def _sync_touch(self, touch: dict) -> None:
+        active = bool(touch.get("active"))
+        pos = touch.get("pos")
+        if not active or not pos or len(pos) != 2:
+            if self._last_touch_active:
+                self._send_command("touchCancel")
+            self._last_touch_active = False
+            self._last_touch_pos = None
+            self._last_touch_sent = 0.0
+            return
+
+        x_raw, y_raw = int(pos[0]), int(pos[1])
+        x, y = self._scale_touch_point(x_raw, y_raw)
+        hold_ms = self._touch_hold_ms
+        now = time.monotonic()
+        if (
+            self._smoothing_enabled
+            and self._last_touch_active
+            and self._last_touch_pos is not None
+        ):
+            dx = abs(x - self._last_touch_pos[0])
+            dy = abs(y - self._last_touch_pos[1])
+            if max(dx, dy) < 3:
+                if now - self._last_touch_sent < (hold_ms / 1000) * 0.5:
+                    return
+
+        if not self._last_touch_active or self._last_touch_pos != (x, y):
+            if self._last_touch_active:
+                self._send_command("touchCancel")
+        else:
+            # Same position: refresh hold to keep contact down.
+            if now - self._last_touch_sent < (hold_ms / 1000) * 0.5:
+                return
+
+        self._send_command(f"touchHold {x} {y} {hold_ms}")
+        self._last_touch_active = True
+        self._last_touch_pos = (x, y)
+        self._last_touch_sent = now
+
     def _send_neutral_state(self) -> None:
         """Release any held inputs and recenter sticks."""
         if self._last_buttons:
@@ -262,11 +345,32 @@ class SysBotbaseBridge:
                 self._send_command(f"release {btn}")
         self._send_command("setStick LEFT 0 0")
         self._send_command("setStick RIGHT 0 0")
+        if self._last_touch_active:
+            self._send_command("touchCancel")
+        self._last_touch_active = False
+        self._last_touch_pos = None
 
     def _send_command(self, command: str) -> None:
         if self.sock is None:
             return
         self.sock.sendall((command + "\r\n").encode("ascii"))
+
+    def _scale_touch_point(self, x: int, y: int) -> tuple[int, int]:
+        """Map DSU touch coordinates into Switch touchscreen space."""
+        if not self._touch_source:
+            return x, y
+        src_w, src_h = self._touch_source
+        tgt_w, tgt_h = self.TOUCH_TARGET_WIDTH, self.TOUCH_TARGET_HEIGHT
+        if src_w <= 0 or src_h <= 0:
+            return x, y
+        scale = min(tgt_w / src_w, tgt_h / src_h)
+        offset_x = (tgt_w - src_w * scale) / 2
+        offset_y = (tgt_h - src_h * scale) / 2
+        mapped_x = int(round(x * scale + offset_x))
+        mapped_y = int(round(y * scale + offset_y))
+        mapped_x = max(0, min(tgt_w, mapped_x))
+        mapped_y = max(0, min(tgt_h, mapped_y))
+        return mapped_x, mapped_y
 
     def _apply_deadzone(self, value: int) -> int:
         """Clamp small stick motions to center when deadzone is set."""

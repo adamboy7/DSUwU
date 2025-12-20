@@ -348,13 +348,17 @@ class SysBotDialog(simpledialog.Dialog):
 
     def __init__(self, parent, initial_ip: str | None, slots: list[int] | tuple[int, ...],
                  initial_rate: float | None, initial_smoothing: bool,
-                 initial_deadzone: int | None):
+                 initial_deadzone: int | None,
+                 initial_touch_width: int | None,
+                 initial_touch_height: int | None):
         self.initial_ip = initial_ip or ""
         self.initial_rate = initial_rate
         self.initial_smoothing = initial_smoothing
         self.initial_deadzone = initial_deadzone
+        self.initial_touch_width = initial_touch_width
+        self.initial_touch_height = initial_touch_height
         self.slots = slots
-        self.result: tuple[str, int, float | None, bool, int | None] | None = None
+        self.result: tuple[str, int, float | None, bool, int | None, int | None, int | None] | None = None
         super().__init__(parent, "Sys-Botbase")
 
     def body(self, master):
@@ -397,6 +401,22 @@ class SysBotDialog(simpledialog.Dialog):
             self.deadzone_entry.insert(0, str(self.initial_deadzone))
         self.deadzone_entry.grid(row=4, column=1, sticky="ew", padx=4, pady=4)
 
+        ttk.Label(master, text="Touch source width (optional):").grid(
+            row=5, column=0, sticky="w", padx=4, pady=4
+        )
+        self.touch_w_entry = ttk.Entry(master)
+        if self.initial_touch_width is not None:
+            self.touch_w_entry.insert(0, str(self.initial_touch_width))
+        self.touch_w_entry.grid(row=5, column=1, sticky="ew", padx=4, pady=4)
+
+        ttk.Label(master, text="Touch source height (optional):").grid(
+            row=6, column=0, sticky="w", padx=4, pady=4
+        )
+        self.touch_h_entry = ttk.Entry(master)
+        if self.initial_touch_height is not None:
+            self.touch_h_entry.insert(0, str(self.initial_touch_height))
+        self.touch_h_entry.grid(row=6, column=1, sticky="ew", padx=4, pady=4)
+
         master.columnconfigure(1, weight=1)
         return self.ip_entry
 
@@ -405,6 +425,8 @@ class SysBotDialog(simpledialog.Dialog):
         slot_raw = self.slot_var.get().strip()
         rate_raw = self.rate_entry.get().strip()
         deadzone_raw = self.deadzone_entry.get().strip()
+        touch_w_raw = self.touch_w_entry.get().strip()
+        touch_h_raw = self.touch_h_entry.get().strip()
 
         if not ip:
             messagebox.showerror("Sys-Botbase", "IP address is required.")
@@ -441,11 +463,37 @@ class SysBotDialog(simpledialog.Dialog):
             if deadzone == 0:
                 deadzone = None
 
+        touch_w = None
+        touch_h = None
+        if touch_w_raw:
+            try:
+                touch_w = int(touch_w_raw)
+            except ValueError:
+                messagebox.showerror("Sys-Botbase", "Touch source width must be a number.")
+                return False
+            if touch_w <= 0:
+                messagebox.showerror("Sys-Botbase", "Touch source width must be positive.")
+                return False
+        if touch_h_raw:
+            try:
+                touch_h = int(touch_h_raw)
+            except ValueError:
+                messagebox.showerror("Sys-Botbase", "Touch source height must be a number.")
+                return False
+            if touch_h <= 0:
+                messagebox.showerror("Sys-Botbase", "Touch source height must be positive.")
+                return False
+        if (touch_w is None) != (touch_h is None):
+            messagebox.showerror("Sys-Botbase", "Provide both touch width and height, or leave both blank.")
+            return False
+
         self._validated_ip = ip
         self._validated_slot = slot
         self._validated_rate = rate
         self._validated_smoothing = bool(self.smoothing_var.get())
         self._validated_deadzone = deadzone
+        self._validated_touch_w = touch_w
+        self._validated_touch_h = touch_h
         return True
 
     def apply(self):
@@ -455,6 +503,8 @@ class SysBotDialog(simpledialog.Dialog):
             self._validated_rate,
             self._validated_smoothing,
             self._validated_deadzone,
+            self._validated_touch_w,
+            self._validated_touch_h,
         )
 
 
@@ -481,6 +531,8 @@ class ViewerUI:
         self._sysbot_rate_hz: float | None = None
         self._sysbot_smoothing = False
         self._sysbot_deadzone: int | None = None
+        self._sysbot_touch_w: int | None = SysBotbaseBridge.TOUCH_SOURCE_DEFAULT[0]
+        self._sysbot_touch_h: int | None = SysBotbaseBridge.TOUCH_SOURCE_DEFAULT[1]
         self._sysbot_menu_state = self.sys_botbase.active
         self.parser_win = None
         # Initialize tabs based on discovered slots. If slot 0 is present and
@@ -616,20 +668,26 @@ class ViewerUI:
             self._sysbot_rate_hz,
             self._sysbot_smoothing,
             self._sysbot_deadzone,
+            self._sysbot_touch_w,
+            self._sysbot_touch_h,
         )
         if dialog.result is None:
             return
-        ip, slot, rate, smoothing, deadzone = dialog.result
+        ip, slot, rate, smoothing, deadzone, touch_w, touch_h = dialog.result
         self._sysbot_ip = ip
         self._sysbot_rate_hz = rate
         self._sysbot_smoothing = smoothing
         self._sysbot_deadzone = deadzone
+        self._sysbot_touch_w = touch_w
+        self._sysbot_touch_h = touch_h
         if not self.sys_botbase.start(
             ip,
             slot,
             max_rate_hz=rate,
             smoothing=smoothing,
             deadzone=deadzone,
+            touch_source_width=touch_w,
+            touch_source_height=touch_h,
         ):
             messagebox.showerror("Sys-Botbase", "Failed to connect to sys-botbase server.")
             return
