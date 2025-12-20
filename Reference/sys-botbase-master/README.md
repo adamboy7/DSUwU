@@ -6,6 +6,8 @@ A Nintendo Switch (CFW) sys-module that allows users to remote control their swi
 - Set controller state
 - Simulate buttons press, hold, and release
 - Simulate touch screen drawing
+- Accepts DSU (DualShock UDP) input packets on UDP port 26760
+  and mirrors them to the virtual controller state
 
 ### Memory Reading and Writing:
 - Read/write x amount bytes of consecutive memory from RAM based on:

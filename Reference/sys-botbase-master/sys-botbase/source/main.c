@@ -14,6 +14,9 @@
 #include "freeze.h"
 #include <poll.h>
 
+#define DSU_PORT 26760
+#define DSU_BUTTON_RESPONSE 0x100002
+
 #define TITLE_ID 0x430000000000000B
 #define HEAP_SIZE 0x00480000
 #define THREAD_SIZE 0x1A000
@@ -52,6 +55,7 @@ u8 clickToken = 0;
 // fd counters and max size
 int fd_count = 0;
 int fd_size = 5;
+int dsu_socket = -1;
 
 // we aren't an applet
 u32 __nx_applet_type = AppletType_None;
@@ -119,6 +123,199 @@ u64 freezeRate = 3;
 bool debugResultCodes = false;
 
 bool echoCommands = false;
+
+static int scale_dsu_axis(u8 value)
+{
+    int centered = (int)value - 128;
+    double scaled;
+
+    if (centered >= 0)
+        scaled = ((double)centered / 127.0) * 0x7FFF;
+    else
+        scaled = ((double)centered / 128.0) * 0x8000;
+
+    if (scaled > 0x7FFF)
+        return 0x7FFF;
+    if (scaled < -0x8000)
+        return -0x8000;
+    return (int)scaled;
+}
+
+static u64 map_dsu_buttons(u8 buttons1, u8 buttons2, u8 home)
+{
+    u64 mapped = 0;
+
+    if (buttons1 & 0x01)
+        mapped |= HidNpadButton_Minus; // Share
+    if (buttons1 & 0x02)
+        mapped |= HidNpadButton_StickL;
+    if (buttons1 & 0x04)
+        mapped |= HidNpadButton_StickR;
+    if (buttons1 & 0x08)
+        mapped |= HidNpadButton_Plus; // Options
+    if (buttons1 & 0x10)
+        mapped |= HidNpadButton_Up;
+    if (buttons1 & 0x20)
+        mapped |= HidNpadButton_Right;
+    if (buttons1 & 0x40)
+        mapped |= HidNpadButton_Down;
+    if (buttons1 & 0x80)
+        mapped |= HidNpadButton_Left;
+
+    if (buttons2 & 0x01)
+        mapped |= HidNpadButton_ZL;
+    if (buttons2 & 0x02)
+        mapped |= HidNpadButton_ZR;
+    if (buttons2 & 0x04)
+        mapped |= HidNpadButton_L;
+    if (buttons2 & 0x08)
+        mapped |= HidNpadButton_R;
+    if (buttons2 & 0x10)
+        mapped |= HidNpadButton_X; // Triangle
+    if (buttons2 & 0x20)
+        mapped |= HidNpadButton_A; // Circle
+    if (buttons2 & 0x40)
+        mapped |= HidNpadButton_B; // Cross
+    if (buttons2 & 0x80)
+        mapped |= HidNpadButton_Y; // Square
+
+    if (home)
+        mapped |= HidNpadButton_Home;
+
+    return mapped;
+}
+
+static void apply_dsu_state(u8 *payload, size_t len)
+{
+    // Expect at least header + button block
+    if (len < 36)
+        return;
+
+    // payload layout matches protocols/dsu_packet.py::send_input
+    size_t offset = 0;
+    offset += 4; // slot, slot state, device model, connection type
+    offset += 6; // mac address
+
+    u8 battery = payload[offset];
+    u8 connected = payload[offset + 1];
+    offset += 2;
+
+    u32 packet_counter = 0;
+    memcpy(&packet_counter, &payload[offset], sizeof(packet_counter));
+    offset += sizeof(packet_counter);
+
+    if (len < offset + 20)
+        return;
+
+    u8 buttons1 = payload[offset];
+    u8 buttons2 = payload[offset + 1];
+    u8 home = payload[offset + 2];
+    u8 touch_button = payload[offset + 3];
+    u8 ls_x = payload[offset + 4];
+    u8 ls_y_inv = payload[offset + 5];
+    u8 rs_x = payload[offset + 6];
+    u8 rs_y_inv = payload[offset + 7];
+    u8 dpad_left = payload[offset + 8];
+    u8 dpad_down = payload[offset + 9];
+    u8 dpad_right = payload[offset + 10];
+    u8 dpad_up = payload[offset + 11];
+    u8 face_analog = payload[offset + 12];
+    (void)face_analog; // face analog values are unused for now
+    u8 analog_r1 = payload[offset + 16];
+    u8 analog_l1 = payload[offset + 17];
+    u8 analog_r2 = payload[offset + 18];
+    u8 analog_l2 = payload[offset + 19];
+    (void)analog_r1;
+    (void)analog_l1;
+    (void)analog_r2;
+    (void)analog_l2;
+
+    // If the controller isn't connected, release buttons and recenter sticks
+    initController();
+
+    if (!connected)
+    {
+        controllerState.buttons = 0;
+        controllerState.analog_stick_l.x = 0;
+        controllerState.analog_stick_l.y = 0;
+        controllerState.analog_stick_r.x = 0;
+        controllerState.analog_stick_r.y = 0;
+        hiddbgSetHdlsState(controllerHandle, &controllerState);
+        return;
+    }
+
+    u64 mapped_buttons = map_dsu_buttons(buttons1, buttons2, home);
+    if (touch_button)
+        mapped_buttons |= HidNpadButton_StickL; // map touch button to L3 to keep compatibility
+
+    // simple digital dpad fallback if analog values are present
+    if (dpad_up)
+        mapped_buttons |= HidNpadButton_Up;
+    if (dpad_down)
+        mapped_buttons |= HidNpadButton_Down;
+    if (dpad_left)
+        mapped_buttons |= HidNpadButton_Left;
+    if (dpad_right)
+        mapped_buttons |= HidNpadButton_Right;
+
+    controllerState.buttons = mapped_buttons;
+    controllerState.analog_stick_l.x = scale_dsu_axis(ls_x);
+    controllerState.analog_stick_l.y = scale_dsu_axis(255 - ls_y_inv);
+    controllerState.analog_stick_r.x = scale_dsu_axis(rs_x);
+    controllerState.analog_stick_r.y = scale_dsu_axis(255 - rs_y_inv);
+    controllerState.sampling_number = packet_counter;
+
+    hiddbgSetHdlsState(controllerHandle, &controllerState);
+
+    if (battery <= 1)
+    {
+        // pulse the LED when the reported battery is dying
+        flashLed();
+    }
+}
+
+static void handle_dsu_packet(int sock)
+{
+    u8 buffer[2048];
+    ssize_t len = recvfrom(sock, buffer, sizeof buffer, 0, NULL, NULL);
+    if (len < 24)
+        return;
+
+    if (memcmp(buffer, "DSUS", 4) != 0)
+        return;
+
+    u32 msg_type = 0;
+    memcpy(&msg_type, &buffer[16], sizeof(msg_type));
+    if (msg_type != DSU_BUTTON_RESPONSE)
+        return;
+
+    apply_dsu_state(&buffer[20], (size_t)len - 20);
+}
+
+static int setup_dsu_socket()
+{
+    int sock = socket(AF_INET, SOCK_DGRAM, 0);
+    int yes = 1;
+    struct sockaddr_in server;
+
+    if (sock < 0)
+        return -1;
+
+    memset(&server, 0, sizeof(server));
+    setsockopt(sock, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(yes));
+
+    server.sin_family = AF_INET;
+    server.sin_addr.s_addr = INADDR_ANY;
+    server.sin_port = htons(DSU_PORT);
+
+    if (bind(sock, (struct sockaddr *)&server, sizeof(server)) < 0)
+    {
+        close(sock);
+        return -1;
+    }
+
+    return sock;
+}
 
 void makeTouch(HidTouchState* state, u64 sequentialCount, u64 holdTime, bool hold)
 {
@@ -919,7 +1116,18 @@ int main()
     int listenfd = setupServerSocket();
     pfds[0].fd = listenfd;
     pfds[0].events = POLLIN;
-    fd_count = 1;
+
+    dsu_socket = setup_dsu_socket();
+    if (dsu_socket != -1)
+    {
+        pfds[1].fd = dsu_socket;
+        pfds[1].events = POLLIN;
+        fd_count = 2;
+    }
+    else
+    {
+        fd_count = 1;
+    }
 
     int newfd;
 	
@@ -962,7 +1170,7 @@ int main()
         {
             if (pfds[i].revents & POLLIN) 
             {
-                if (pfds[i].fd == listenfd) 
+                if (pfds[i].fd == listenfd)
                 {
                     newfd = accept(listenfd, (struct sockaddr *)&client, (socklen_t *)&c);
                     if(newfd != -1)
@@ -976,6 +1184,10 @@ int main()
                         pfds[0].events = POLLIN;
                         break;
                     }
+                }
+                else if (pfds[i].fd == dsu_socket)
+                {
+                    handle_dsu_packet(dsu_socket);
                 }
                 else
                 {
