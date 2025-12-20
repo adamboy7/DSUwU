@@ -19,9 +19,22 @@ from .dsu_constants import (
 )
 
 
-def crc_packet(header: bytes, payload: bytes) -> int:
-    """Return CRC32 for a packet."""
-    data = header[:8] + b"\x00\x00\x00\x00" + header[12:] + payload
+def crc_packet(header: bytes | memoryview, payload: bytes | memoryview) -> int:
+    """Return CRC32 for a packet.
+
+    ``header`` and ``payload`` may be any object supporting the buffer protocol.
+    They are converted to :class:`bytes` slices to ensure compatibility when the
+    caller provides a ``memoryview`` (e.g. when parsing packets directly from a
+    receive buffer).
+    """
+    header_view = memoryview(header)
+    payload_view = memoryview(payload)
+    data = (
+        header_view[:8].tobytes()
+        + b"\x00\x00\x00\x00"
+        + header_view[12:].tobytes()
+        + payload_view.tobytes()
+    )
     return zlib.crc32(data) & 0xFFFFFFFF
 
 # Socket used for sending packets. The server assigns this when initialized.
