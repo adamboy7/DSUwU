@@ -93,11 +93,7 @@ def controller_loop(stop_event, controller_states, slot):
         button = cmd
 
         def _pulse() -> None:
-            for i in range(hold_frames + 1):
-                if stop_event.is_set():
-                    break
-                pulse_button(i, controller_states, active_slot, **{button: True})
-                time.sleep(frame_delay)
+            pulse_button(hold_frames, controller_states, active_slot, **{button: True})
 
         threading.Thread(target=_pulse, daemon=True).start()
         return "break"
