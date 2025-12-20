@@ -46,19 +46,16 @@ def controller_loop(stop_event, controller_states, slot):
     if js is None:
         return
 
+    last_state = None
+    poll_delay = frame_delay / 8
+
     while not stop_event.is_set():
         pygame.event.pump()
-        state = controller_states[slot]
-        state.connected = True
 
         buttons = [js.get_button(i) for i in range(min(js.get_numbuttons(), 16))]
-        # Extend list to 16 elements
         while len(buttons) < 16:
             buttons.append(0)
 
-        # Some controllers (e.g. Xbox) expose the D-Pad as a hat instead of
-        # buttons. Merge any hat input with the button list so both controller
-        # types work the same way.
         hat_up = hat_right = hat_down = hat_left = False
         for hat_x, hat_y in (js.get_hat(i) for i in range(js.get_numhats())):
             hat_left |= hat_x < 0
@@ -68,23 +65,20 @@ def controller_loop(stop_event, controller_states, slot):
 
         axes = [js.get_axis(i) for i in range(js.get_numaxes())]
 
-        if len(axes) >= 2:
-            state.L_stick = (_axis_to_byte(axes[0]), _axis_to_byte(axes[1]))
-        else:
-            state.L_stick = (128, 128)
+        L_stick = (
+            _axis_to_byte(axes[0]),
+            _axis_to_byte(axes[1]),
+        ) if len(axes) >= 2 else (128, 128)
 
-        if len(axes) >= 4:
-            state.R_stick = (_axis_to_byte(axes[2]), _axis_to_byte(axes[3]))
-        else:
-            state.R_stick = (128, 128)
+        R_stick = (
+            _axis_to_byte(axes[2]),
+            _axis_to_byte(axes[3]),
+        ) if len(axes) >= 4 else (128, 128)
 
         analog_L2 = _axis_to_byte(axes[4]) if len(axes) >= 5 else 0
         analog_R2 = _axis_to_byte(axes[5]) if len(axes) >= 6 else 0
 
-        state.analog_L2 = analog_L2
-        state.analog_R2 = analog_R2
-
-        state.buttons1 = button_mask_1(
+        buttons1 = button_mask_1(
             share=bool(buttons[4]),
             l3=bool(buttons[7]),
             r3=bool(buttons[8]),
@@ -94,7 +88,7 @@ def controller_loop(stop_event, controller_states, slot):
             down=bool(buttons[12]) or hat_down,
             left=bool(buttons[13]) or hat_left,
         )
-        state.buttons2 = button_mask_2(
+        buttons2 = button_mask_2(
             l2=analog_L2 > 0,
             r2=analog_R2 > 0,
             l1=bool(buttons[9]),
@@ -104,11 +98,39 @@ def controller_loop(stop_event, controller_states, slot):
             cross=bool(buttons[0]),
             square=bool(buttons[2]),
         )
-        state.home = bool(buttons[5])
-        state.touch_button = bool(buttons[15])
-        state.analog_L1 = 255 if buttons[9] else 0
-        state.analog_R1 = 255 if buttons[10] else 0
 
-        time.sleep(frame_delay)
+        current_state = (
+            buttons1,
+            buttons2,
+            bool(buttons[5]),
+            bool(buttons[15]),
+            L_stick,
+            R_stick,
+            255 if buttons[9] else 0,
+            255 if buttons[10] else 0,
+            analog_L2,
+            analog_R2,
+        )
+
+        if current_state == last_state:
+            time.sleep(poll_delay)
+            continue
+
+        state = controller_states[slot]
+        state.connected = True
+        state.buttons1 = buttons1
+        state.buttons2 = buttons2
+        state.home = current_state[2]
+        state.touch_button = current_state[3]
+        state.L_stick = L_stick
+        state.R_stick = R_stick
+        state.analog_L1 = current_state[6]
+        state.analog_R1 = current_state[7]
+        state.analog_L2 = analog_L2
+        state.analog_R2 = analog_R2
+
+        last_state = current_state
+
+        time.sleep(poll_delay)
 
     js.quit()
