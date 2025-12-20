@@ -36,6 +36,11 @@ class DSUProtocol:
         self.server_id = server_id
         self._prev_connection_types: dict[int, int] = {}
         self._idle_slots: set[int] = set()
+        # DSU packets max out at a few hundred bytes (e.g. a 256-slot list
+        # ports request is ~280 bytes including the header). Reserve plenty of
+        # room to hold any packet without reallocations.
+        self._recv_buffer = bytearray(2048)
+        self._buffer_view = memoryview(self._recv_buffer)
 
     def initialize(
         self,
@@ -57,8 +62,8 @@ class DSUProtocol:
 
     def handle_requests(self, sock: socket.socket) -> None:
         """Process any pending DSU requests from ``sock``."""
-        recv_buffer = bytearray(2048)
-        buffer_view = memoryview(recv_buffer)
+        recv_buffer = self._recv_buffer
+        buffer_view = self._buffer_view
         try:
             while True:
                 bytes_read, addr = sock.recvfrom_into(recv_buffer)
