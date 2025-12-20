@@ -175,6 +175,7 @@ def controller_loop(stop_event, controller_states, slot):
     device = None
     device_info: Optional[dict] = None
     last_hw_timestamp: Optional[int] = None
+    last_report: Optional[list[int]] = None
     motion_timestamp = int(time.time() * 1_000_000)
 
     while not stop_event.is_set():
@@ -194,7 +195,7 @@ def controller_loop(stop_event, controller_states, slot):
                 continue
 
         try:
-            report = device.read(78, timeout_ms=250)
+            report = device.read(78, timeout_ms=0)
         except ValueError:
             # Handle "not open" and similar errors by attempting to reopen once.
             if not _ensure_handle_open(device, device_info or {}, device_info.get("path") if device_info else None):
@@ -206,7 +207,7 @@ def controller_loop(stop_event, controller_states, slot):
                 time.sleep(1)
                 continue
             try:
-                report = device.read(78, timeout_ms=250)
+                report = device.read(78, timeout_ms=0)
             except Exception as exc:
                 print(f"hid_controller: read failed after reopen: {exc}")
                 try:
@@ -227,8 +228,10 @@ def controller_loop(stop_event, controller_states, slot):
             continue
 
         if not report:
-            time.sleep(frame_delay)
-            continue
+            report = last_report
+            if not report:
+                time.sleep(frame_delay)
+                continue
 
         try:
             base, connection_type = _connection_from_report(report)
@@ -236,6 +239,7 @@ def controller_loop(stop_event, controller_states, slot):
             base, connection_type = 0, 1
         min_length = base + 43  # Covers everything up to the second touch packet.
         if len(report) < min_length:
+            time.sleep(frame_delay)
             continue
 
         face_byte = report[base + 5]
@@ -327,6 +331,8 @@ def controller_loop(stop_event, controller_states, slot):
 
         state.connection_type = connection_type
         state.battery = _battery_from_power_byte(report[base + 30])
+
+        last_report = report
 
         time.sleep(frame_delay)
 
