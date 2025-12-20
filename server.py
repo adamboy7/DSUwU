@@ -190,7 +190,7 @@ def start_server(port: int = net_cfg.UDP_port,
         protocol.initialize(sock, controller_states, stop_event, idle_slots)
 
         try:
-            update_timeout = 0.005
+            update_timeout = 0.001
             while not stop_event.is_set():
                 readable, _, _ = select.select([sock], [], [], 0)
 
@@ -200,12 +200,14 @@ def start_server(port: int = net_cfg.UDP_port,
                 if readable:
                     protocol.handle_requests(sock)
 
-                state_dirty.wait(timeout=update_timeout)
+                if not state_dirty.is_set():
+                    state_dirty.wait(timeout=update_timeout)
                 if stop_event.is_set():
                     break
 
-                protocol.update_clients(controller_states)
-                state_dirty.clear()
+                if state_dirty.is_set():
+                    protocol.update_clients(controller_states)
+                    state_dirty.clear()
         except Exception as exc:
             print(f"Server loop crashed: {exc}")
         finally:
