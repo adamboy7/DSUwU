@@ -57,14 +57,19 @@ class DSUProtocol:
 
     def handle_requests(self, sock: socket.socket) -> None:
         """Process any pending DSU requests from ``sock``."""
+        recv_buffer = bytearray(2048)
+        buffer_view = memoryview(recv_buffer)
         try:
             while True:
-                data, addr = sock.recvfrom(2048)
-                if len(data) < 20 or data[:4] != b"DSUC":
+                bytes_read, addr = sock.recvfrom_into(recv_buffer)
+                if bytes_read < 20 or recv_buffer[:4] != b"DSUC":
                     continue
 
+                data_view = buffer_view[:bytes_read]
                 try:
-                    _, version, declared_length, recv_crc, _ = struct.unpack("<4sHHII", data[:16])
+                    _, version, declared_length, recv_crc, _ = struct.unpack(
+                        "<4sHHII", data_view[:16]
+                    )
                 except struct.error:
                     continue
 
@@ -72,15 +77,16 @@ class DSUProtocol:
                     continue
                 if declared_length < 4:
                     continue
-                if declared_length != len(data) - 16:
+                if declared_length != bytes_read - 16:
                     continue
 
-                msg = data[16:]
-                computed_crc = packet.crc_packet(data[:16], msg)
+                msg = data_view[16:]
+                computed_crc = packet.crc_packet(data_view[:16], msg)
                 if computed_crc != recv_crc:
                     continue
 
                 negotiated_version = min(version, PROTOCOL_VERSION)
+                data = data_view
                 info = net_cfg.ensure_client(addr)
                 info["protocol_version"] = negotiated_version
 

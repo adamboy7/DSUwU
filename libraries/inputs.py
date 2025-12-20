@@ -5,6 +5,7 @@ import json
 import time
 import os
 import sys
+import threading
 from contextlib import nullcontext
 
 from .masks import button_mask_1, button_mask_2
@@ -46,10 +47,12 @@ VALID_BUTTONS = _MASK1_BUTTONS | _MASK2_BUTTONS | _MISC_BUTTONS
 
 
 def pulse_button(frame, controller_states, slot, **button_kwargs):
-    """Apply a pulsing button mask to ``controller_states``.
+    """Press specific buttons for ``frame`` frames then release.
 
     Supports all buttons from ``button_mask_1`` and ``button_mask_2`` as well as
-    the ``home`` and ``touch`` buttons.
+    the ``home`` and ``touch`` buttons. ``frame`` follows the documentation in
+    ``demo/Script.md`` and represents how many 1/60ths of a second the buttons
+    should remain pressed.
     """
     state = controller_states[slot]
     mask1_args = {k: button_kwargs.get(k, False) for k in _MASK1_BUTTONS}
@@ -57,18 +60,30 @@ def pulse_button(frame, controller_states, slot, **button_kwargs):
     home = bool(button_kwargs.get("home", False))
     touch = bool(button_kwargs.get("touch", False))
 
-    if frame % cycle_duration < press_duration:
-        state.buttons1 = button_mask_1(**mask1_args)
-        state.buttons2 = button_mask_2(**mask2_args)
-        state.home = home
-        state.touch_button = touch
-    else:
+    state.buttons1 = button_mask_1(**mask1_args)
+    state.buttons2 = button_mask_2(**mask2_args)
+    state.home = home
+    state.touch_button = touch
+
+    if frame <= 0:
         state.buttons1 = button_mask_1()
         state.buttons2 = button_mask_2()
         if home:
             state.home = False
         if touch:
             state.touch_button = False
+        return
+
+    def _release():
+        time.sleep(frame * frame_delay)
+        state.buttons1 = button_mask_1()
+        state.buttons2 = button_mask_2()
+        if home:
+            state.home = False
+        if touch:
+            state.touch_button = False
+
+    threading.Thread(target=_release, daemon=True).start()
 
 
 def pulse_button_xor(frame, controller_states, slot, *buttons, **button_kwargs):
@@ -78,7 +93,8 @@ def pulse_button_xor(frame, controller_states, slot, *buttons, **button_kwargs):
     arguments are also accepted for backwards compatibility, any truthy
     value enables the corresponding button. Falsy values are ignored.
     Supports all buttons from ``button_mask_1`` and ``button_mask_2`` as well as
-    the ``home`` and ``touch`` buttons.
+    the ``home`` and ``touch`` buttons. ``frame`` specifies how many 1/60ths of
+    a second the toggled state should remain active before reverting.
     """
     mask1_args: dict[str, bool] = {}
     mask2_args: dict[str, bool] = {}
@@ -110,8 +126,21 @@ def pulse_button_xor(frame, controller_states, slot, *buttons, **button_kwargs):
     mask1 = button_mask_1(**mask1_args)
     mask2 = button_mask_2(**mask2_args)
 
-    if frame % cycle_duration == 0:
-        state = controller_states[slot]
+    state = controller_states[slot]
+    if mask1:
+        state.buttons1 ^= mask1
+    if mask2:
+        state.buttons2 ^= mask2
+    if home_toggle:
+        state.home = not state.home
+    if touch_toggle:
+        state.touch_button = not state.touch_button
+
+    if frame <= 0:
+        return
+
+    def _revert_toggle():
+        time.sleep(frame * frame_delay)
         if mask1:
             state.buttons1 ^= mask1
         if mask2:
@@ -120,16 +149,8 @@ def pulse_button_xor(frame, controller_states, slot, *buttons, **button_kwargs):
             state.home = not state.home
         if touch_toggle:
             state.touch_button = not state.touch_button
-    if frame % cycle_duration == press_duration:
-        state = controller_states[slot]
-        if mask1:
-            state.buttons1 ^= mask1
-        if mask2:
-            state.buttons2 ^= mask2
-        if home_toggle:
-            state.home = not state.home
-        if touch_toggle:
-            state.touch_button = not state.touch_button
+
+    threading.Thread(target=_revert_toggle, daemon=True).start()
 
 
 _loaded_script_names: dict[str, str] = {}
