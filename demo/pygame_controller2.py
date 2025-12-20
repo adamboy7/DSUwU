@@ -61,6 +61,16 @@ def controller_loop(stop_event, controller_states, slot):
         while len(buttons) < 16:
             buttons.append(0)
 
+        # Some controllers (e.g. Xbox) expose the D-Pad as a hat instead of
+        # buttons. Merge any hat input with the button list so both controller
+        # types work the same way.
+        hat_up = hat_right = hat_down = hat_left = False
+        for hat_x, hat_y in (js.get_hat(i) for i in range(js.get_numhats())):
+            hat_left |= hat_x < 0
+            hat_right |= hat_x > 0
+            hat_up |= hat_y > 0
+            hat_down |= hat_y < 0
+
         axes = [js.get_axis(i) for i in range(js.get_numaxes())]
 
         if len(axes) >= 2:
@@ -84,10 +94,10 @@ def controller_loop(stop_event, controller_states, slot):
             l3=bool(buttons[7]),
             r3=bool(buttons[8]),
             options=bool(buttons[6]),
-            up=bool(buttons[11]),
-            right=bool(buttons[14]),
-            down=bool(buttons[12]),
-            left=bool(buttons[13]),
+            up=bool(buttons[11]) or hat_up,
+            right=bool(buttons[14]) or hat_right,
+            down=bool(buttons[12]) or hat_down,
+            left=bool(buttons[13]) or hat_left,
         )
         state.buttons2 = button_mask_2(
             l2=analog_L2 > 0,
