@@ -175,10 +175,12 @@ def controller_loop(stop_event, controller_states, slot):
     device = None
     device_info: Optional[dict] = None
     last_hw_timestamp: Optional[int] = None
-    last_report: Optional[list[int]] = None
     motion_timestamp = int(time.time() * 1_000_000)
 
+    read_timeout_ms = max(1, int(frame_delay * 1000))
+
     while not stop_event.is_set():
+        loop_start = time.perf_counter()
         if device is None:
             device, device_info = _open_controller(hid_module)
             last_hw_timestamp = None
@@ -195,7 +197,7 @@ def controller_loop(stop_event, controller_states, slot):
                 continue
 
         try:
-            report = device.read(78, timeout_ms=0)
+            report = device.read(78, timeout_ms=read_timeout_ms)
         except ValueError:
             # Handle "not open" and similar errors by attempting to reopen once.
             if not _ensure_handle_open(device, device_info or {}, device_info.get("path") if device_info else None):
@@ -207,7 +209,7 @@ def controller_loop(stop_event, controller_states, slot):
                 time.sleep(1)
                 continue
             try:
-                report = device.read(78, timeout_ms=0)
+                report = device.read(78, timeout_ms=read_timeout_ms)
             except Exception as exc:
                 print(f"hid_controller: read failed after reopen: {exc}")
                 try:
@@ -228,10 +230,7 @@ def controller_loop(stop_event, controller_states, slot):
             continue
 
         if not report:
-            report = last_report
-            if not report:
-                time.sleep(frame_delay)
-                continue
+            continue
 
         try:
             base, connection_type = _connection_from_report(report)
@@ -332,9 +331,9 @@ def controller_loop(stop_event, controller_states, slot):
         state.connection_type = connection_type
         state.battery = _battery_from_power_byte(report[base + 30])
 
-        last_report = report
-
-        time.sleep(frame_delay)
+        elapsed = time.perf_counter() - loop_start
+        if elapsed < frame_delay:
+            time.sleep(frame_delay - elapsed)
 
     if device is not None:
         try:
