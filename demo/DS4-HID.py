@@ -177,10 +177,11 @@ def controller_loop(stop_event, controller_states, slot):
     last_hw_timestamp: Optional[int] = None
     motion_timestamp = int(time.time() * 1_000_000)
 
-    read_timeout_ms = max(1, int(frame_delay * 1000))
+    # DS4/DualSense typically report around 250 Hz (~4 ms); use a tight timeout
+    # so missed packets are retried quickly without capping the loop to 60 Hz.
+    read_timeout_ms = 4
 
     while not stop_event.is_set():
-        loop_start = time.perf_counter()
         if device is None:
             device, device_info = _open_controller(hid_module)
             last_hw_timestamp = None
@@ -330,10 +331,6 @@ def controller_loop(stop_event, controller_states, slot):
 
         state.connection_type = connection_type
         state.battery = _battery_from_power_byte(report[base + 30])
-
-        elapsed = time.perf_counter() - loop_start
-        if elapsed < frame_delay:
-            time.sleep(frame_delay - elapsed)
 
     if device is not None:
         try:
