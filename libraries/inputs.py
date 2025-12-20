@@ -1,11 +1,13 @@
 """Input emulation helper utilities."""
 
+import heapq
 import importlib.util
 import json
 import time
 import os
 import sys
 import threading
+from typing import Callable
 from contextlib import nullcontext
 
 from .masks import button_mask_1, button_mask_2
@@ -15,6 +17,51 @@ from . import net_config as net_cfg
 press_duration = 3
 cycle_duration = 60
 frame_delay = 1 / 60.0
+
+
+class _ReleaseScheduler:
+    """Lightweight scheduler for deferred button releases.
+
+    A single daemon thread processes a priority queue of release callbacks
+    scheduled by ``pulse_button`` and ``pulse_button_xor``.
+    """
+
+    def __init__(self) -> None:
+        self._queue: list[tuple[float, Callable[[], None]]] = []
+        self._cv = threading.Condition()
+        self._thread = threading.Thread(target=self._run, daemon=True)
+        self._thread.start()
+
+    def schedule(self, delay: float, callback) -> None:
+        run_at = time.time() + max(delay, 0.0)
+        with self._cv:
+            heapq.heappush(self._queue, (run_at, callback))
+            self._cv.notify()
+
+    def _run(self) -> None:
+        while True:
+            with self._cv:
+                while not self._queue:
+                    self._cv.wait()
+                run_at, callback = self._queue[0]
+                now = time.time()
+                wait_time = run_at - now
+                if wait_time > 0:
+                    self._cv.wait(timeout=wait_time)
+                    continue
+                heapq.heappop(self._queue)
+            callback()
+
+
+_release_scheduler: _ReleaseScheduler | None = None
+_controller_lock = threading.Lock()
+
+
+def _get_release_scheduler() -> _ReleaseScheduler:
+    global _release_scheduler
+    if _release_scheduler is None:
+        _release_scheduler = _ReleaseScheduler()
+    return _release_scheduler
 
 # Button names grouped by mask
 _MASK1_BUTTONS = {
@@ -59,31 +106,34 @@ def pulse_button(frame, controller_states, slot, **button_kwargs):
     mask2_args = {k: button_kwargs.get(k, False) for k in _MASK2_BUTTONS}
     home = bool(button_kwargs.get("home", False))
     touch = bool(button_kwargs.get("touch", False))
+    mask1 = button_mask_1(**mask1_args)
+    mask2 = button_mask_2(**mask2_args)
 
-    state.buttons1 = button_mask_1(**mask1_args)
-    state.buttons2 = button_mask_2(**mask2_args)
-    state.home = home
-    state.touch_button = touch
+    with _controller_lock:
+        state.buttons1 = mask1
+        state.buttons2 = mask2
+        state.home = home
+        state.touch_button = touch
 
-    if frame <= 0:
-        state.buttons1 = button_mask_1()
-        state.buttons2 = button_mask_2()
-        if home:
-            state.home = False
-        if touch:
-            state.touch_button = False
-        return
+        if frame <= 0:
+            state.buttons1 = button_mask_1()
+            state.buttons2 = button_mask_2()
+            if home:
+                state.home = False
+            if touch:
+                state.touch_button = False
+            return
 
     def _release():
-        time.sleep(frame * frame_delay)
-        state.buttons1 = button_mask_1()
-        state.buttons2 = button_mask_2()
-        if home:
-            state.home = False
-        if touch:
-            state.touch_button = False
+        with _controller_lock:
+            state.buttons1 = button_mask_1()
+            state.buttons2 = button_mask_2()
+            if home:
+                state.home = False
+            if touch:
+                state.touch_button = False
 
-    threading.Thread(target=_release, daemon=True).start()
+    _get_release_scheduler().schedule(frame * frame_delay, _release)
 
 
 def pulse_button_xor(frame, controller_states, slot, *buttons, **button_kwargs):
@@ -127,20 +177,7 @@ def pulse_button_xor(frame, controller_states, slot, *buttons, **button_kwargs):
     mask2 = button_mask_2(**mask2_args)
 
     state = controller_states[slot]
-    if mask1:
-        state.buttons1 ^= mask1
-    if mask2:
-        state.buttons2 ^= mask2
-    if home_toggle:
-        state.home = not state.home
-    if touch_toggle:
-        state.touch_button = not state.touch_button
-
-    if frame <= 0:
-        return
-
-    def _revert_toggle():
-        time.sleep(frame * frame_delay)
+    with _controller_lock:
         if mask1:
             state.buttons1 ^= mask1
         if mask2:
@@ -150,7 +187,21 @@ def pulse_button_xor(frame, controller_states, slot, *buttons, **button_kwargs):
         if touch_toggle:
             state.touch_button = not state.touch_button
 
-    threading.Thread(target=_revert_toggle, daemon=True).start()
+    if frame <= 0:
+        return
+
+    def _revert_toggle():
+        with _controller_lock:
+            if mask1:
+                state.buttons1 ^= mask1
+            if mask2:
+                state.buttons2 ^= mask2
+            if home_toggle:
+                state.home = not state.home
+            if touch_toggle:
+                state.touch_button = not state.touch_button
+
+    _get_release_scheduler().schedule(frame * frame_delay, _revert_toggle)
 
 
 _loaded_script_names: dict[str, str] = {}
