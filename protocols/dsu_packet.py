@@ -181,7 +181,7 @@ def handle_pad_data_request(addr, data):
         return
     reg_flags = data[20]
     requested_slot = data[21]
-    mac = data[22:28]
+    mac = bytes(data[22:28])
     info = net_cfg.ensure_client(addr)
     info['last_seen'] = time.time()
     info['registrations'].setdefault('slots', {})
