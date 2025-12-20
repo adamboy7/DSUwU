@@ -1,6 +1,6 @@
 """Merge slot 1 and slot 2 inputs into slot 0.
 
-This script keeps slot 0 connected, XORs the button masks from slots 1 and 2
+This script keeps slot 0 connected, ORs the button masks from slots 1 and 2
 each frame, and chooses whichever stick/trigger input is farther from neutral
 for the merged result (slot 1 wins ties). That makes it possible to treat two
 physical controllers as a single combined controller on slot 0.
@@ -44,7 +44,7 @@ def controller_loop(stop_event, controller_states, slot):
     """Continuously merge controller inputs from slots 1 and 2 into ``slot``.
 
     Slot 1 contributes stick/analog data when it is farther from neutral, while
-    button masks are XORed between slots 1 and 2. This intentionally tolerates
+    button masks are ORed between slots 1 and 2. This intentionally tolerates
     races between writer threads.
     """
 
@@ -55,8 +55,8 @@ def controller_loop(stop_event, controller_states, slot):
 
         merged_state.connected = True
 
-        merged_state.buttons1 = primary_state.buttons1 ^ secondary_state.buttons1
-        merged_state.buttons2 = primary_state.buttons2 ^ secondary_state.buttons2
+        merged_state.buttons1 = primary_state.buttons1 | secondary_state.buttons1
+        merged_state.buttons2 = primary_state.buttons2 | secondary_state.buttons2
 
         merged_state.L_stick = _pick_stick(primary_state.L_stick, secondary_state.L_stick)
         merged_state.R_stick = _pick_stick(primary_state.R_stick, secondary_state.R_stick)
