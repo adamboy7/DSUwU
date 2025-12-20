@@ -149,12 +149,12 @@ def send_port_disconnect(addr, slot, protocol_version: int | None = None):
     queue_packet(packet, addr, f"port disconnect slot {slot}")
 
 
-def handle_version_request(addr, _protocol_version: int):
-    payload = struct.pack('<HH', PROTOCOL_VERSION, 0)
+def handle_version_request(addr, protocol_version: int):
+    payload = struct.pack('<HH', protocol_version, 0)
     packet = build_header(
         DSU_version_response,
         payload,
-        protocol_version=PROTOCOL_VERSION,
+        protocol_version=protocol_version,
     )
     info = net_cfg.ensure_client(addr)
     info['last_seen'] = time.time()
