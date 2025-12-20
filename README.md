@@ -26,6 +26,14 @@ which starts disconnected unless a script is specified. A
 `demo/DS4-HID.py` script is also provided for capturing real controller
 input and motion data from HID, or a more universal `demo/pygame_controller.py` using the `pygame` library, if for some reason you don't want to use DS4Windows ¯\_(ツ)_/¯ (DS4 windows runs faster with lower input latency, but mine has scripting support)
 
+### Input latency benchmarking
+
+Use `Input Latency Benchmark.bat` to start the server with a real HID slot
+(`demo/DS4-HID.py`) alongside `demo/pygame_controller.py` for quick
+comparisons. For synthetic input pulses across two configurable slots, run
+`demo/latency_benchmark_two_slots.py` with the `BENCHMARK_*` environment
+variables described at the top of the script.
+
 Slots beyond four are non‑standard but can be enabled by providing
 `--controller5-script`, `--controller6-script`, and so on, up to a soft limit of
 256. (Slots beyond 256 can still technically be created, but standard port info
