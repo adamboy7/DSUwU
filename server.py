@@ -199,10 +199,9 @@ def start_server(port: int = net_cfg.UDP_port,
                     protocol.handle_requests(sock)
 
                 now = time.monotonic()
-                while now >= next_update:
+                if now >= next_update:
                     protocol.update_clients(controller_states)
-                    next_update += update_interval
-                    now = time.monotonic()
+                    next_update = max(next_update + update_interval, now)
         except Exception as exc:
             print(f"Server loop crashed: {exc}")
         finally:
