@@ -1,0 +1,1 @@
+python server.py --server-id 0xDEADBEEF --controller0-script none --controller1-script demo/DS4-HID.py --controller2-script demo/pygame_controller.py --controller3-script demo/circle_race.py --controller4-script none
