@@ -43,7 +43,7 @@ sock = None
 controller_states = None
 
 # Queue and thread for asynchronous packet sends
-send_queue: queue.Queue[tuple[bytes, tuple[str, int], str | None]] | None = None
+send_queue: queue.Queue[tuple[bytes, tuple[str, int], str | None] | None] | None = None
 send_thread: threading.Thread | None = None
 _send_stop: threading.Event | None = None
 
@@ -56,12 +56,16 @@ def start_sender(send_sock: socket.socket, stop_event: threading.Event) -> None:
     _send_stop = stop_event
 
     def _worker() -> None:
-        assert send_queue is not None
+        assert send_queue is not None and _send_stop is not None
         while not _send_stop.is_set():
-            try:
-                pkt, addr, desc = send_queue.get(timeout=0.1)
-            except queue.Empty:
-                continue
+            item = send_queue.get()
+
+            if item is None or _send_stop.is_set():
+                if item is not None:
+                    send_queue.task_done()
+                break
+
+            pkt, addr, desc = item
             try:
                 send_sock.sendto(pkt, addr)
             except OSError as exc:
@@ -81,6 +85,8 @@ def start_sender(send_sock: socket.socket, stop_event: threading.Event) -> None:
 def stop_sender() -> None:
     """Join the sender thread if running."""
     if send_thread is not None:
+        if send_queue is not None:
+            send_queue.put(None)
         send_thread.join()
 
 
