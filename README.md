@@ -14,6 +14,7 @@ No third‑party packages are required.
 
 ```
 python server.py [--port PORT] [--server-id HEX]
+                 [--update-timeout SECONDS]
                  [--controller1-script PATH] [--controller2-script PATH]
                  [--controller3-script PATH] [--controller4-script PATH]
 ```
@@ -25,6 +26,11 @@ disabled by default but can be manually enabled with `--controller0-script`,
 which starts disconnected unless a script is specified. A
 `demo/DS4-HID.py` script is also provided for capturing real controller
 input and motion data from HID, or a more universal `demo/pygame_controller.py` using the `pygame` library, if for some reason you don't want to use DS4Windows ¯\_(ツ)_/¯ (DS4 windows runs faster with lower input latency, but mine has scripting support)
+
+Use `--update-timeout` to control how often the server sends controller state
+updates. By default it dispatches every 0.005 seconds. Set the value to `0` or
+`none` to send updates immediately whenever inputs change instead of on a fixed
+cadence.
 
 Slots beyond four are non‑standard but can be enabled by providing
 `--controller5-script`, `--controller6-script`, and so on, up to a soft limit of

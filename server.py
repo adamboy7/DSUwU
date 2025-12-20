@@ -28,6 +28,25 @@ def parse_server_id(value):
     return int(value, 16)
 
 
+def parse_update_timeout(value: str | float | int | None) -> float | None:
+    """Parse an update timeout value allowing ``"none"`` to disable it."""
+
+    if value is None:
+        return None
+
+    if isinstance(value, (int, float)):
+        value = str(value)
+
+    lowered = value.lower()
+    if lowered in {"none", "null"}:
+        return None
+
+    timeout = float(value)
+    if timeout < 0:
+        raise argparse.ArgumentTypeError("update timeout must be non-negative")
+    return timeout
+
+
 def parse_arguments():
     """Return parsed CLI arguments."""
     parser = argparse.ArgumentParser(description="DSUwU - Server")
@@ -35,6 +54,16 @@ def parse_arguments():
     parser.add_argument("--server-id", dest="server_id",
                         type=parse_server_id,
                         help="Server identifier (hex)")
+    parser.add_argument(
+        "--update-timeout",
+        dest="update_timeout",
+        type=parse_update_timeout,
+        default=0.005,
+        help=(
+            "Seconds to wait between state updates; set to 0 or none to only "
+            "dispatch when input changes."
+        ),
+    )
     for i in range(0, 5):
         parser.add_argument(
             f"--controller{i}-script",
@@ -101,6 +130,7 @@ def start_server(port: int = net_cfg.UDP_port,
                  server_id_value: int | None = None,
                  scripts: list | None = None,
                  start_slot: int = 0,
+                 update_timeout: float | None = 0.005,
                  protocol_cls: type[DSUProtocol] = DSUProtocol):
     """Launch the DSUwU - Server in a background thread.
 
@@ -126,7 +156,22 @@ def start_server(port: int = net_cfg.UDP_port,
     net_cfg.ensure_slot_count(max_slot)
 
     slot_range = range(start_slot, max_slot + 1)
-    state_dirty = threading.Event()
+    notify_r, notify_w = socket.socketpair()
+    notify_r.setblocking(False)
+    notify_w.setblocking(False)
+
+    class NotifyingEvent(threading.Event):
+        def set(self):
+            already_set = self.is_set()
+            result = super().set()
+            if not already_set:
+                try:
+                    notify_w.send(b"\0")
+                except BlockingIOError:
+                    pass
+            return result
+
+    state_dirty = NotifyingEvent()
     controller_states = ControllerStateDict({slot: ControllerState(connected=False) for slot in slot_range})
     controller_states._dirty_event = state_dirty
     for state in controller_states.values():
@@ -190,22 +235,28 @@ def start_server(port: int = net_cfg.UDP_port,
         protocol.initialize(sock, controller_states, stop_event, idle_slots)
 
         try:
-            update_timeout = 0.005
+            wait_timeout = None if update_timeout in (None, 0) else update_timeout
             while not stop_event.is_set():
-                readable, _, _ = select.select([sock], [], [], 0)
+                readable, _, _ = select.select([sock, notify_r], [], [], wait_timeout)
 
                 if stop_event.is_set():
                     break
 
-                if readable:
+                if sock in readable:
                     protocol.handle_requests(sock)
 
-                state_dirty.wait(timeout=update_timeout)
-                if stop_event.is_set():
-                    break
+                dirty_triggered = notify_r in readable
+                if dirty_triggered:
+                    try:
+                        while notify_r.recv(1024):
+                            pass
+                    except BlockingIOError:
+                        pass
 
-                protocol.update_clients(controller_states)
-                state_dirty.clear()
+                timed_update = wait_timeout is not None and not readable
+                if dirty_triggered or state_dirty.is_set() or timed_update:
+                    protocol.update_clients(controller_states)
+                    state_dirty.clear()
         except Exception as exc:
             print(f"Server loop crashed: {exc}")
         finally:
@@ -214,6 +265,8 @@ def start_server(port: int = net_cfg.UDP_port,
                 t.join()
             protocol.shutdown()
             sock.close()
+            notify_r.close()
+            notify_w.close()
 
     thread = threading.Thread(target=_thread_main, daemon=True)
     thread.start()
@@ -232,6 +285,7 @@ if __name__ == "__main__":
         server_id_value=args.server_id,
         scripts=scripts,
         start_slot=args.start_slot,
+        update_timeout=args.update_timeout,
     )
 
     try:
