@@ -36,6 +36,8 @@ class DSUProtocol:
         self.server_id = server_id
         self._prev_connection_types: dict[int, int] = {}
         self._idle_slots: set[int] = set()
+        self._recv_buffer = bytearray(2048)
+        self._buffer_view = memoryview(self._recv_buffer)
 
     def initialize(
         self,
@@ -47,6 +49,8 @@ class DSUProtocol:
         """Prepare the protocol state for a running server."""
         packet.start_sender(sock, stop_event)
         packet.controller_states = controller_states
+        self._recv_buffer = bytearray(2048)
+        self._buffer_view = memoryview(self._recv_buffer)
         if self.server_id is not None:
             packet.server_id = self.server_id
             net_cfg.server_id = self.server_id
@@ -57,15 +61,13 @@ class DSUProtocol:
 
     def handle_requests(self, sock: socket.socket) -> None:
         """Process any pending DSU requests from ``sock``."""
-        recv_buffer = bytearray(2048)
-        buffer_view = memoryview(recv_buffer)
         try:
             while True:
-                bytes_read, addr = sock.recvfrom_into(recv_buffer)
-                if bytes_read < 20 or recv_buffer[:4] != b"DSUC":
+                bytes_read, addr = sock.recvfrom_into(self._recv_buffer)
+                if bytes_read < 20 or self._recv_buffer[:4] != b"DSUC":
                     continue
 
-                data_view = buffer_view[:bytes_read]
+                data_view = self._buffer_view[:bytes_read]
                 try:
                     _, version, declared_length, recv_crc, _ = struct.unpack(
                         "<4sHHII", data_view[:16]
