@@ -21,7 +21,6 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.append(str(ROOT))
 
-from libraries.inputs import frame_delay
 from tools.sys_botbase import SysBotbaseBridge
 
 __all__ = ["main"]
@@ -116,11 +115,26 @@ class PygameControllerReader:
             return
 
         try:
+            last_state: dict | None = None
+            last_dispatch = 0.0
+            # Prime the state so the bridge immediately mirrors the current inputs.
+            initial_state = self._read_state(js)
+            self.client.dispatch(self.slot, initial_state)
+            last_state = initial_state
+            last_dispatch = time.monotonic()
             while not stop_event.is_set():
-                pygame.event.pump()
+                events = pygame.event.get()
+                if not events:
+                    time.sleep(0.001)
+                    continue
                 state = self._read_state(js)
-                self.client.dispatch(self.slot, state)
-                time.sleep(frame_delay)
+                now = time.monotonic()
+                if state != last_state or (now - last_dispatch) > 0.25:
+                    # Mirrors the rebroadcast path by forwarding state changes
+                    # immediately instead of waiting for a fixed frame delay.
+                    self.client.dispatch(self.slot, state)
+                    last_state = state
+                    last_dispatch = now
         finally:
             try:
                 js.quit()
