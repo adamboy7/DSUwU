@@ -1,6 +1,5 @@
 import time
 import socket
-import sys
 import threading
 import argparse
 import os
@@ -140,8 +139,6 @@ def start_server(port: int = net_cfg.UDP_port,
         sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         sock.bind((net_cfg.UDP_IP, port))
         sock.setblocking(False)
-        if sys.platform == 'win32':
-            sock.ioctl(socket.SIO_UDP_CONNRESET, False)
 
         protocol = protocol_cls(server_id_value)
 
