@@ -1,3 +1,4 @@
+import logging
 import struct
 import zlib
 import time
@@ -365,8 +366,8 @@ def send_input(
     prev_state = net_cfg.last_button_states.get(slot)
     current_state = (buttons1, buttons2)
     if prev_state != current_state:
-        print(
-            f"Sent input to {addr} slot {slot}: "
-            f"buttons1=0x{buttons1:02X} buttons2=0x{buttons2:02X}"
+        logging.debug(
+            "Sent input to %s slot %d: buttons1=0x%02X buttons2=0x%02X",
+            addr, slot, buttons1, buttons2,
         )
         net_cfg.last_button_states[slot] = current_state

@@ -181,12 +181,13 @@ def main() -> None:
     prev_left_stick: tuple[int, int] = (0, 0)
     prev_right_stick: tuple[int, int] = (0, 0)
 
-    POLL_DELAY = 1 / 240.0  # ~240 Hz polling for low latency
+    POLL_MS = max(1, int(1000 / 240))  # ~4 ms; event.wait wakes earlier on input
 
     print("Forwarding input. Press Ctrl+C to exit.", flush=True)
     try:
         while True:
-            pygame.event.pump()
+            pygame.event.wait(POLL_MS)
+            pygame.event.get()
 
             # ── buttons ───────────────────────────────────────────────────
             n_buttons = min(js.get_numbuttons(), max(_BUTTON_MAP.keys()) + 1)
@@ -268,7 +269,6 @@ def main() -> None:
             prev_left_stick  = cur_left_stick
             prev_right_stick = cur_right_stick
 
-            time.sleep(POLL_DELAY)
 
     except KeyboardInterrupt:
         print("\nExiting…", flush=True)

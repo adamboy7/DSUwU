@@ -108,11 +108,8 @@ class DSUProtocol:
                     packet.handle_motor_command(addr, data)
         except BlockingIOError:
             pass
-        except ConnectionResetError as exc:
-            print(f"Client connection reset: {exc}")
-            for client in list(net_cfg.active_clients):
-                print(f"Removing client {client} due to connection reset")
-            net_cfg.active_clients.clear()
+        except ConnectionResetError:
+            pass
         except Exception as exc:
             print(f"Error processing packet: {exc}")
 

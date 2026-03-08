@@ -1,5 +1,6 @@
 import time
 import socket
+import sys
 import threading
 import argparse
 import os
@@ -139,6 +140,8 @@ def start_server(port: int = net_cfg.UDP_port,
         sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         sock.bind((net_cfg.UDP_IP, port))
         sock.setblocking(False)
+        if sys.platform == 'win32':
+            sock.ioctl(socket.SIO_UDP_CONNRESET, False)
 
         protocol = protocol_cls(server_id_value)
 
@@ -191,6 +194,8 @@ def start_server(port: int = net_cfg.UDP_port,
 
         try:
             update_timeout = 0.005
+            _keepalive = 1 / 60.0
+            _last_update = 0.0
             while not stop_event.is_set():
                 readable, _, _ = select.select([sock], [], [], 0)
 
@@ -200,12 +205,15 @@ def start_server(port: int = net_cfg.UDP_port,
                 if readable:
                     protocol.handle_requests(sock)
 
-                state_dirty.wait(timeout=update_timeout)
+                changed = state_dirty.wait(timeout=update_timeout)
                 if stop_event.is_set():
                     break
 
-                protocol.update_clients(controller_states)
-                state_dirty.clear()
+                now = time.monotonic()
+                if changed or now - _last_update >= _keepalive:
+                    protocol.update_clients(controller_states)
+                    state_dirty.clear()
+                    _last_update = now
         except Exception as exc:
             print(f"Server loop crashed: {exc}")
         finally:
