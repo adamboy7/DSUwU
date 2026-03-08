@@ -91,4 +91,8 @@ cython_debug/
 
 # VS Code
 .vscode/
-Reference/DSU.md
+
+# Reference material
+Reference/
+tools/sys_botbase_last.json
+demo/sys_botbase_last.json

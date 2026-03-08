@@ -285,6 +285,136 @@ def set_slot_connection_type(controller_states, slot: int, conn_type: int) -> No
     state.connection_type = conn_type
 
 
+def set_stick(controller_states, slot, lx=None, ly=None, rx=None, ry=None):
+    """Set analog stick positions on ``controller_states``.
+
+    Each axis accepts a value in the range 0–255. Neutral is 128. Omit an
+    axis to leave it unchanged.
+    """
+    state = controller_states[slot]
+    if lx is not None or ly is not None:
+        cur_lx, cur_ly = state.L_stick
+        new_lx = lx if lx is not None else cur_lx
+        new_ly = ly if ly is not None else cur_ly
+        state.L_stick = (new_lx & 0xFF, new_ly & 0xFF)
+    if rx is not None or ry is not None:
+        cur_rx, cur_ry = state.R_stick
+        new_rx = rx if rx is not None else cur_rx
+        new_ry = ry if ry is not None else cur_ry
+        state.R_stick = (new_rx & 0xFF, new_ry & 0xFF)
+
+
+def pulse_stick(frame, controller_states, slot, lx=None, ly=None, rx=None, ry=None):
+    """Hold analog stick positions for ``frame`` frames then return to neutral.
+
+    Same axis semantics as :func:`set_stick`. After the pulse, any provided
+    axis returns to the neutral position (128). Omitted axes are not changed.
+    """
+    set_stick(controller_states, slot, lx=lx, ly=ly, rx=rx, ry=ry)
+
+    neutral_lx = 128 if lx is not None else None
+    neutral_ly = 128 if ly is not None else None
+    neutral_rx = 128 if rx is not None else None
+    neutral_ry = 128 if ry is not None else None
+
+    if frame <= 0:
+        set_stick(controller_states, slot, lx=neutral_lx, ly=neutral_ly, rx=neutral_rx, ry=neutral_ry)
+        return
+
+    def _release():
+        time.sleep(frame * frame_delay)
+        set_stick(controller_states, slot, lx=neutral_lx, ly=neutral_ly, rx=neutral_rx, ry=neutral_ry)
+
+    threading.Thread(target=_release, daemon=True).start()
+
+
+def set_triggers(controller_states, slot, l2=None, r2=None, l1=None, r1=None):
+    """Set analog trigger and shoulder values on ``controller_states``.
+
+    Each value is in the range 0–255. Omit a trigger to leave it unchanged.
+    """
+    state = controller_states[slot]
+    if l2 is not None:
+        state.analog_L2 = l2 & 0xFF
+    if r2 is not None:
+        state.analog_R2 = r2 & 0xFF
+    if l1 is not None:
+        state.analog_L1 = l1 & 0xFF
+    if r1 is not None:
+        state.analog_R1 = r1 & 0xFF
+
+
+def release_all(controller_states, slot):
+    """Reset all inputs for ``slot`` to their neutral/unpressed state."""
+    state = controller_states[slot]
+    state.buttons1 = button_mask_1()
+    state.buttons2 = button_mask_2()
+    state.home = False
+    state.touch_button = False
+    state.L_stick = (128, 128)
+    state.R_stick = (128, 128)
+    state.dpad_analog = (0, 0, 0, 0)
+    state.face_analog = (0, 0, 0, 0)
+    state.analog_L1 = 0
+    state.analog_L2 = 0
+    state.analog_R1 = 0
+    state.analog_R2 = 0
+    state.touchpad_input1 = None
+    state.touchpad_input2 = None
+
+
+def set_touch(controller_states, slot, x, y, touch_id=0, finger=1):
+    """Set an active touch point on the touchpad.
+
+    ``x`` and ``y`` are touch coordinates. ``touch_id`` is the tracking ID
+    for the contact (keep it the same across updates for one continuous
+    gesture). ``finger`` selects the touch slot: ``1`` for the first contact,
+    ``2`` for the second.
+    """
+    if finger not in (1, 2):
+        raise ValueError("finger must be 1 or 2")
+    state = controller_states[slot]
+    t = touchpad_input(True, touch_id & 0xFF, x & 0xFFFF, y & 0xFFFF)
+    if finger == 1:
+        state.touchpad_input1 = t
+    else:
+        state.touchpad_input2 = t
+
+
+def clear_touch(controller_states, slot, finger=1):
+    """Deactivate a touch point on the touchpad.
+
+    ``finger`` selects the touch slot to clear: ``1`` or ``2``.
+    """
+    if finger not in (1, 2):
+        raise ValueError("finger must be 1 or 2")
+    state = controller_states[slot]
+    if finger == 1:
+        state.touchpad_input1 = None
+    else:
+        state.touchpad_input2 = None
+
+
+def get_rumble(controller_states, slot, motor_id=0):
+    """Return the current rumble intensity for ``motor_id`` on ``slot``.
+
+    ``motor_id`` is 0-indexed. Returns a value in the range 0–255. Raises
+    ``ValueError`` if ``motor_id`` is out of range for the slot.
+    """
+    state = controller_states[slot]
+    if motor_id >= state.motor_count:
+        raise ValueError(
+            f"motor_id {motor_id} out of range "
+            f"(slot {slot} has {state.motor_count} motor(s))"
+        )
+    return state.motors[motor_id]
+
+
+def wait(frames):
+    """Sleep for ``frames`` frames (each frame is ``frame_delay`` seconds)."""
+    time.sleep(frames * frame_delay)
+
+
 def Replay_Inputs(path: str, slot: int | str, motion: str | None = None):
     """Return a controller loop that replays captured input and motion data.
 

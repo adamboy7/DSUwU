@@ -31,3 +31,19 @@ Allows you to selectively write button states without modifying other buttons th
 
 **Set your controller's connection type:** `set_slot_connection_type(controller_states, slot, conn_type)`,
 **controller_states** being the server's controller dictionary, **slot** being the controller slot number you want to update, and **conn_type** relevant values are `0` for N/A, `1` for USB, `2` for bluetooth, and `-1` is a special scripted flag that sends a port disconnect to the client, updates the port info appropriately, and deletes the controller dictionary entry from the server.
+
+**Set stick positions:** `set_stick(controller_states, slot, lx=None, ly=None, rx=None, ry=None)`, each axis accepts a value in the range 0–255, with 128 being neutral. Omit any axis to leave it unchanged. To move only the left stick: `set_stick(controller_states, slot, lx=200, ly=128)`.
+
+**Flick a stick:** `pulse_stick(frame, controller_states, slot, lx=None, ly=None, rx=None, ry=None)`, moves the stick to the given position for **frame** 1/60ths of a second then returns any provided axis to neutral (128). Omitted axes are not affected.
+
+**Set trigger/shoulder values:** `set_triggers(controller_states, slot, l2=None, r2=None, l1=None, r1=None)`, each value is in the range 0–255. Omit any trigger to leave it unchanged.
+
+**Release all inputs:** `release_all(controller_states, slot)`, immediately resets all buttons, sticks, triggers, and touch inputs to their neutral/unpressed state. Useful as a cleanup call at the end of a macro or in an exception handler to avoid a stuck controller.
+
+**Set a touch point:** `set_touch(controller_states, slot, x, y, touch_id=0, finger=1)`, activates a touchpad contact at position (**x**, **y**). **touch_id** is a tracking ID that should stay the same across updates for a single continuous gesture. **finger** is `1` (first contact) or `2` (second contact).
+
+**Clear a touch point:** `clear_touch(controller_states, slot, finger=1)`, deactivates the specified touch contact. **finger** is `1` or `2`.
+
+**Read rumble intensity:** `get_rumble(controller_states, slot, motor_id=0)`, returns the current rumble intensity (0–255) for **motor_id** on **slot**. Useful for scripts that need to react to game feedback.
+
+**Wait for frames:** `wait(frames)`, sleeps for **frames** 1/60ths of a second. Equivalent to `time.sleep(frames * frame_delay)` but clearer in intent.

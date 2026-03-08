@@ -1,419 +1,286 @@
-"""Standalone pygame-to-Sys-Botbase bridge.
+"""Standalone pygame → sys-botbase controller bridge.
 
-This tool bypasses the DSU networking layer and forwards controller input read
-directly from ``pygame`` to a Sys-Botbase endpoint. A small Tkinter GUI mirrors
-the Sys-Botbase options from the viewer, allowing you to configure the target
-IP, optional polling rate limit, anti-jitter smoothing, and deadzone.
+Reads a physical gamepad via pygame and forwards input directly to a Nintendo
+Switch running sys-botbase over TCP, bypassing the DSUwU server entirely.
+
+Configuration constants (edit as needed):
+- ``JOYSTICK_INDEX``: Pygame joystick index (0 = first controller).
+- ``BOTBASE_PORT``: TCP port sys-botbase listens on (default 6000).
+- ``TRIGGER_THRESHOLD``: Axis value above which L2/R2 count as pressed (0.0–1.0).
+- ``STICK_DEADZONE``: Axis magnitude below which sticks are treated as centred.
+- ``INVERT_STICK_X``: Set True if stick X appears inverted in-game.
+- ``INVERT_STICK_Y``: Set True if stick Y appears inverted in-game.
+- ``SWAP_ABXY``: Set True to swap A↔B and X↔Y (PS4 positional → Switch layout).
+
+Last-used IP is saved to ``sys_botbase_last.json`` next to this script.
+
+Button layout assumes a DualShock 4 / DualSense controller via pygame.
+Adjust ``_BUTTON_MAP`` if your gamepad reports different indices.
 """
 
-from __future__ import annotations
-
-import logging
+import json
+import os
+import socket
 import sys
-import threading
 import time
-from pathlib import Path
-from tkinter import BooleanVar, StringVar, Tk, messagebox, simpledialog, ttk
 
-import pygame
-
-ROOT = Path(__file__).resolve().parents[1]
-if str(ROOT) not in sys.path:
-    sys.path.append(str(ROOT))
-
-from libraries.inputs import frame_delay
-from tools.sys_botbase import SysBotbaseBridge
-
-__all__ = ["main"]
+try:
+    import pygame
+except ImportError:
+    sys.exit("pygame is required: pip install pygame")
 
 
-def _axis_to_byte(value: float) -> int:
-    """Convert a pygame axis value (-1.0..1.0) to an unsigned byte."""
-    v = int((value + 1.0) * 127.5)
-    return max(0, min(v, 255))
+# ── configuration ─────────────────────────────────────────────────────────────
+JOYSTICK_INDEX    = 0
+BOTBASE_PORT      = 6000
+TRIGGER_THRESHOLD = 0.2    # 0.0–1.0; above this = ZL/ZR pressed
+STICK_DEADZONE    = 0.05   # axis magnitude; smaller treated as centred
+INVERT_STICK_X    = False
+INVERT_STICK_Y    = True
+SWAP_ABXY         = True         # swap A↔B and X↔Y (PS4 positional → Switch layout)
+
+_ABXY_SWAP = {"A": "B", "B": "A", "X": "Y", "Y": "X"}
+
+_SAVE_FILE = os.path.join(os.path.dirname(__file__), "sys_botbase_last.json")
+
+# ── axis helpers ──────────────────────────────────────────────────────────────
+def _axis_to_sb(value: float) -> int:
+    """Convert pygame axis (-1.0..1.0) to sys-botbase range (-0x8000..0x7FFF)."""
+    if value >= 0.0:
+        return min(0x7FFF, int(value * 0x7FFF))
+    return max(-0x8000, int(value * 0x8000))
 
 
-class _LocalClient:
-    """Minimal client shim so ``SysBotbaseBridge`` can consume local state."""
-
-    def __init__(self):
-        self.state_callback = None
-
-    def dispatch(self, slot: int, state: dict) -> None:
-        if self.state_callback is None:
-            return
-        try:
-            self.state_callback(slot, state)
-        except Exception as exc:  # pragma: no cover - defensive
-            logging.error("State callback failed: %s", exc)
+def _dead(value: float) -> float:
+    """Apply deadzone: return 0.0 if magnitude is below threshold."""
+    return 0.0 if abs(value) < STICK_DEADZONE else value
 
 
-class PygameControllerReader:
-    """Poll controller state with pygame and forward to a state callback."""
-
-    def __init__(self, client: _LocalClient):
-        self.client = client
-        self.slot = 0
-        self.joystick_index = 0
-        self.thread: threading.Thread | None = None
-        self.stop_event: threading.Event | None = None
-
-    def ensure_joystick(self, joystick_index: int) -> tuple[bool, str | None]:
-        """Verify that the requested joystick is available."""
-        pygame.init()
-        pygame.joystick.init()
-        try:
-            count = pygame.joystick.get_count()
-            if count == 0:
-                return False, "No joysticks detected."
-            if joystick_index >= count:
-                return (
-                    False,
-                    f"Joystick {joystick_index} not available (found {count}).",
-                )
-            js = pygame.joystick.Joystick(joystick_index)
-            try:
-                js.init()
-            except pygame.error as exc:
-                return False, f"Failed to initialize joystick {joystick_index}: {exc}"
-            finally:
-                js.quit()
-            return True, None
-        finally:
-            pygame.joystick.quit()
-            pygame.quit()
-
-    def start(self, slot: int, joystick_index: int) -> tuple[bool, str | None]:
-        """Begin polling the joystick on a background thread."""
-        self.stop()
-        self.slot = slot
-        self.joystick_index = joystick_index
-        self.stop_event = threading.Event()
-        self.thread = threading.Thread(target=self._loop, daemon=True)
-        self.thread.start()
-        return True, None
-
-    def stop(self) -> None:
-        if self.stop_event is not None:
-            self.stop_event.set()
-        if self.thread is not None:
-            self.thread.join(timeout=0.5)
-        self.thread = None
-        self.stop_event = None
-
-    def _loop(self) -> None:
-        stop_event = self.stop_event
-        if stop_event is None:
-            return
-
-        pygame.init()
-        pygame.joystick.init()
-        try:
-            js = pygame.joystick.Joystick(self.joystick_index)
-            js.init()
-        except pygame.error as exc:
-            logging.error("Failed to initialize joystick %d: %s", self.joystick_index, exc)
-            return
-
-        try:
-            while not stop_event.is_set():
-                pygame.event.pump()
-                state = self._read_state(js)
-                self.client.dispatch(self.slot, state)
-                time.sleep(frame_delay)
-        finally:
-            try:
-                js.quit()
-            finally:
-                pygame.joystick.quit()
-                pygame.quit()
-
-    def _read_state(self, js: pygame.joystick.Joystick) -> dict:
-        buttons_raw = [js.get_button(i) for i in range(js.get_numbuttons())]
-        axes = [js.get_axis(i) for i in range(js.get_numaxes())]
-        hat_x = 0
-        hat_y = 0
-        if js.get_numhats() > 0:
-            hat_x, hat_y = js.get_hat(0)
-
-        def _btn(idx: int) -> bool:
-            return idx < len(buttons_raw) and bool(buttons_raw[idx])
-
-        ls_x = _axis_to_byte(axes[0]) if len(axes) >= 1 else 128
-        ls_y = _axis_to_byte(axes[1]) if len(axes) >= 2 else 128
-        rs_x = _axis_to_byte(axes[2]) if len(axes) >= 3 else 128
-        rs_y = _axis_to_byte(axes[3]) if len(axes) >= 4 else 128
-
-        analog_l2 = _axis_to_byte(axes[4]) if len(axes) >= 5 else 0
-        analog_r2 = _axis_to_byte(axes[5]) if len(axes) >= 6 else 0
-
-        dpad_up = hat_y > 0 or _btn(11)
-        dpad_right = hat_x > 0 or _btn(14)
-        dpad_down = hat_y < 0 or _btn(12)
-        dpad_left = hat_x < 0 or _btn(13)
-
-        buttons = {
-            "A": _btn(0),
-            "B": _btn(1),
-            "X": _btn(2),
-            "Y": _btn(3),
-            "Share": _btn(4),
-            "Options": _btn(6),
-            "L3": _btn(7),
-            "R3": _btn(8),
-            "L1": _btn(9),
-            "R1": _btn(10),
-            "D-Pad Up": dpad_up,
-            "D-Pad Right": dpad_right,
-            "D-Pad Down": dpad_down,
-            "D-Pad Left": dpad_left,
-            "L2": analog_l2 > 0,
-            "R2": analog_r2 > 0,
-        }
-
-        return {
-            "buttons": buttons,
-            "home": _btn(5),
-            "ls": (ls_x, ls_y),
-            "rs": (rs_x, rs_y),
-        }
+# ── button map ────────────────────────────────────────────────────────────────
+# Maps pygame button index → sys-botbase button name.
+# Assumes DualShock 4 / DualSense layout as reported by pygame on Windows/Linux.
+# Adjust if your controller reports different indices.
+_BUTTON_MAP = {
+    0:  "A",       # cross    (bottom)
+    1:  "B",       # circle   (right)
+    2:  "X",       # square   (left)
+    3:  "Y",       # triangle (top)
+    4:  "MINUS",   # share / select
+    5:  "HOME",    # PS / home
+    6:  "PLUS",    # options / start
+    7:  "LSTICK",  # L3
+    8:  "RSTICK",  # R3
+    9:  "L",       # L1
+    10: "R",       # R1
+    # buttons 11–14 are d-pad on some drivers; also covered by hat fallback below
+    11: "DUP",
+    12: "DDOWN",
+    13: "DLEFT",
+    14: "DRIGHT",
+}
 
 
-class SysBotDialog(simpledialog.Dialog):
-    """Sys-Botbase configuration with pygame joystick selection."""
+# ── save / load ───────────────────────────────────────────────────────────────
+def _load_last() -> str:
+    try:
+        with open(_SAVE_FILE) as f:
+            data = json.load(f)
+        return str(data.get("ip", ""))
+    except (OSError, ValueError):
+        return ""
 
-    def __init__(
-        self,
-        parent,
-        initial_ip: str | None,
-        initial_slot: int,
-        initial_rate: float | None,
-        initial_smoothing: bool,
-        initial_deadzone: int | None,
-        initial_joystick: int,
-    ):
-        self.initial_ip = initial_ip or ""
-        self.initial_slot = initial_slot
-        self.initial_rate = initial_rate
-        self.initial_smoothing = initial_smoothing
-        self.initial_deadzone = initial_deadzone
-        self.initial_joystick = initial_joystick
-        self.result: tuple[str, int, float | None, bool, int | None, int] | None = None
-        super().__init__(parent, "Sys-Botbase")
 
-    def body(self, master):
-        ttk.Label(master, text="Sys-Botbase IP:").grid(row=0, column=0, sticky="w", padx=4, pady=4)
-        self.ip_entry = ttk.Entry(master)
-        self.ip_entry.insert(0, self.initial_ip)
-        self.ip_entry.grid(row=0, column=1, sticky="ew", padx=4, pady=4)
+def _save_last(ip: str) -> None:
+    try:
+        with open(_SAVE_FILE, "w") as f:
+            json.dump({"ip": ip}, f)
+    except OSError:
+        pass
 
-        ttk.Label(master, text="Controller slot:").grid(row=1, column=0, sticky="w", padx=4, pady=4)
-        self.slot_entry = ttk.Entry(master)
-        self.slot_entry.insert(0, str(self.initial_slot))
-        self.slot_entry.grid(row=1, column=1, sticky="ew", padx=4, pady=4)
 
-        ttk.Label(master, text="Max packet rate (Hz, optional):").grid(
-            row=2, column=0, sticky="w", padx=4, pady=4
-        )
-        self.rate_entry = ttk.Entry(master)
-        if self.initial_rate:
-            self.rate_entry.insert(0, str(self.initial_rate))
-        self.rate_entry.grid(row=2, column=1, sticky="ew", padx=4, pady=4)
+# ── TCP helpers ───────────────────────────────────────────────────────────────
+def _connect(ip: str) -> socket.socket | None:
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        s.settimeout(3.0)
+        s.connect((ip, BOTBASE_PORT))
+        s.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+        s.settimeout(1.0)
+        s.sendall(b"configure mainLoopSleepTime 0\r\n")
+        print(f"Connected to sys-botbase at {ip}:{BOTBASE_PORT}", flush=True)
+        return s
+    except OSError as exc:
+        print(f"Connection failed: {exc}", file=sys.stderr, flush=True)
+        return None
 
-        self.smoothing_var = BooleanVar(value=self.initial_smoothing)
-        ttk.Checkbutton(
-            master,
-            text="Anti-Jitter",
-            variable=self.smoothing_var,
-        ).grid(row=3, column=0, columnspan=2, sticky="w", padx=4, pady=4)
 
-        ttk.Label(master, text="Deadzone (0-255, optional):").grid(
-            row=4, column=0, sticky="w", padx=4, pady=4
-        )
-        self.deadzone_entry = ttk.Entry(master)
-        if self.initial_deadzone is not None:
-            self.deadzone_entry.insert(0, str(self.initial_deadzone))
-        self.deadzone_entry.grid(row=4, column=1, sticky="ew", padx=4, pady=4)
-
-        ttk.Label(master, text="Pygame joystick index:").grid(
-            row=5, column=0, sticky="w", padx=4, pady=4
-        )
-        self.joystick_entry = ttk.Entry(master)
-        self.joystick_entry.insert(0, str(self.initial_joystick))
-        self.joystick_entry.grid(row=5, column=1, sticky="ew", padx=4, pady=4)
-
-        master.columnconfigure(1, weight=1)
-        return self.ip_entry
-
-    def validate(self) -> bool:
-        ip = self.ip_entry.get().strip()
-        slot_raw = self.slot_entry.get().strip()
-        rate_raw = self.rate_entry.get().strip()
-        deadzone_raw = self.deadzone_entry.get().strip()
-        joystick_raw = self.joystick_entry.get().strip()
-
-        if not ip:
-            messagebox.showerror("Sys-Botbase", "IP address is required.")
-            return False
-        try:
-            slot = int(slot_raw)
-        except ValueError:
-            messagebox.showerror("Sys-Botbase", "Controller slot must be a number.")
-            return False
-        if slot < 0:
-            messagebox.showerror("Sys-Botbase", "Controller slot cannot be negative.")
-            return False
-
-        rate = None
-        if rate_raw:
-            try:
-                rate = float(rate_raw)
-            except ValueError:
-                messagebox.showerror("Sys-Botbase", "Polling rate must be a number.")
-                return False
-            if rate <= 0:
-                messagebox.showerror("Sys-Botbase", "Polling rate must be positive.")
-                return False
-
-        deadzone = None
-        if deadzone_raw:
-            try:
-                deadzone = int(deadzone_raw)
-            except ValueError:
-                messagebox.showerror("Sys-Botbase", "Deadzone must be a number.")
-                return False
-            if deadzone < 0:
-                messagebox.showerror("Sys-Botbase", "Deadzone cannot be negative.")
-                return False
-            if deadzone == 0:
-                deadzone = None
-
-        try:
-            joystick_index = int(joystick_raw)
-        except ValueError:
-            messagebox.showerror("Sys-Botbase", "Joystick index must be a number.")
-            return False
-        if joystick_index < 0:
-            messagebox.showerror("Sys-Botbase", "Joystick index cannot be negative.")
-            return False
-
-        self._validated_ip = ip
-        self._validated_slot = slot
-        self._validated_rate = rate
-        self._validated_smoothing = bool(self.smoothing_var.get())
-        self._validated_deadzone = deadzone
-        self._validated_joystick = joystick_index
+def _send(sock: socket.socket, cmd: str) -> bool:
+    try:
+        sock.sendall((cmd + "\r\n").encode())
         return True
-
-    def apply(self):
-        self.result = (
-            self._validated_ip,
-            self._validated_slot,
-            self._validated_rate,
-            self._validated_smoothing,
-            self._validated_deadzone,
-            self._validated_joystick,
-        )
+    except OSError as exc:
+        print(f"Send error: {exc}", file=sys.stderr, flush=True)
+        return False
 
 
-class StandaloneSysBotApp:
-    """Tk UI for the pygame-to-Sys-Botbase bridge."""
-
-    def __init__(self):
-        self.client = _LocalClient()
-        self.bridge = SysBotbaseBridge(self.client)
-        self.reader = PygameControllerReader(self.client)
-
-        self.root = Tk()
-        self.root.title("Sys-Botbase Direct Bridge")
-
-        self.status_var = StringVar(value="Disconnected")
-        self.button = ttk.Button(self.root, text="Connect", command=self._toggle)
-        self.button.pack(fill="x", padx=8, pady=(8, 4))
-        ttk.Label(self.root, textvariable=self.status_var).pack(fill="x", padx=8, pady=(0, 8))
-
-        self.ip = "127.0.0.1"
-        self.slot = 0
-        self.rate = None
-        self.smoothing = False
-        self.deadzone = None
-        self.joystick_index = 0
-
-        self.root.protocol("WM_DELETE_WINDOW", self._on_close)
-
-    def _toggle(self):
-        if self.bridge.active:
-            self._stop()
-            return
-
-        dialog = SysBotDialog(
-            self.root,
-            self.ip,
-            self.slot,
-            self.rate,
-            self.smoothing,
-            self.deadzone,
-            self.joystick_index,
-        )
-        if dialog.result is None:
-            return
-
-        ip, slot, rate, smoothing, deadzone, joystick_index = dialog.result
-        ok, err = self.reader.ensure_joystick(joystick_index)
-        if not ok:
-            messagebox.showerror("Sys-Botbase", err)
-            return
-        if not self.bridge.start(
-            ip,
-            slot,
-            max_rate_hz=rate,
-            smoothing=smoothing,
-            deadzone=deadzone,
-        ):
-            messagebox.showerror("Sys-Botbase", "Failed to connect to sys-botbase server.")
-            return
-
-        started, err = self.reader.start(slot, joystick_index)
-        if not started:
-            self.bridge.stop()
-            if err:
-                messagebox.showerror("Sys-Botbase", err)
-            return
-
-        self.ip = ip
-        self.slot = slot
-        self.rate = rate
-        self.smoothing = smoothing
-        self.deadzone = deadzone
-        self.joystick_index = joystick_index
-
-        self.status_var.set(
-            f"Connected to {ip} (slot {slot}, joystick {joystick_index}"
-            f"{', max ' + str(rate) + ' Hz' if rate else ''})"
-        )
-        self.button.config(text="Disconnect")
-
-    def _stop(self):
-        self.reader.stop()
-        self.bridge.stop()
-        self.status_var.set("Disconnected")
-        self.button.config(text="Connect")
-
-    def _on_close(self):
-        self._stop()
-        self.root.destroy()
-
-    def run(self):
-        try:
-            self.root.mainloop()
-        finally:
-            self._stop()
+def _cleanup(sock: socket.socket, held: set[str]) -> None:
+    for btn in list(held):
+        _send(sock, f"release {btn}")
+    held.clear()
+    _send(sock, "setStick LEFT 0 0")
+    _send(sock, "setStick RIGHT 0 0")
 
 
-def main():
-    logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
-    app = StandaloneSysBotApp()
-    app.run()
+# ── joystick init ─────────────────────────────────────────────────────────────
+def _init_joystick() -> "pygame.joystick.JoystickType | None":
+    pygame.joystick.quit()
+    pygame.joystick.init()
+    count = pygame.joystick.get_count()
+    if count == 0:
+        print("No joystick detected.", file=sys.stderr)
+        return None
+    if count <= JOYSTICK_INDEX:
+        print(f"Joystick {JOYSTICK_INDEX} not available ({count} found).", file=sys.stderr)
+        return None
+    js = pygame.joystick.Joystick(JOYSTICK_INDEX)
+    try:
+        js.init()
+        print(f"Using joystick {JOYSTICK_INDEX}: {js.get_name()}", flush=True)
+        return js
+    except pygame.error as exc:
+        print(f"Failed to init joystick: {exc}", file=sys.stderr)
+        return None
+
+
+# ── main ──────────────────────────────────────────────────────────────────────
+def main() -> None:
+    last_ip = _load_last()
+    ip_prompt = f"Switch IP address [{last_ip}]: " if last_ip else "Switch IP address: "
+    ip_input = input(ip_prompt).strip()
+    ip = ip_input if ip_input else last_ip
+    if not ip:
+        sys.exit("No IP address provided.")
+    _save_last(ip)
+
+    pygame.init()
+    js = None
+    while js is None:
+        js = _init_joystick()
+        if js is None:
+            print("Retrying in 2 seconds…")
+            time.sleep(2)
+
+    sock = _connect(ip)
+    while sock is None:
+        print("Retrying connection in 2 seconds…")
+        time.sleep(2)
+        sock = _connect(ip)
+
+    held: set[str] = set()
+    prev_buttons: set[str] = set()
+    prev_left_stick: tuple[int, int] = (0, 0)
+    prev_right_stick: tuple[int, int] = (0, 0)
+
+    POLL_DELAY = 1 / 240.0  # ~240 Hz polling for low latency
+
+    print("Forwarding input. Press Ctrl+C to exit.", flush=True)
+    try:
+        while True:
+            pygame.event.pump()
+
+            # ── buttons ───────────────────────────────────────────────────
+            n_buttons = min(js.get_numbuttons(), max(_BUTTON_MAP.keys()) + 1)
+            cur_buttons: set[str] = set()
+            for idx in range(n_buttons):
+                if js.get_button(idx) and idx in _BUTTON_MAP:
+                    name = _BUTTON_MAP[idx]
+                    cur_buttons.add(_ABXY_SWAP.get(name, name) if SWAP_ABXY else name)
+
+            # Hat d-pad (overrides/supplements button indices 11–14)
+            for i in range(js.get_numhats()):
+                hx, hy = js.get_hat(i)
+                if hx < 0:
+                    cur_buttons.discard("DRIGHT"); cur_buttons.add("DLEFT")
+                elif hx > 0:
+                    cur_buttons.discard("DLEFT"); cur_buttons.add("DRIGHT")
+                if hy > 0:
+                    cur_buttons.discard("DDOWN"); cur_buttons.add("DUP")
+                elif hy < 0:
+                    cur_buttons.discard("DUP"); cur_buttons.add("DDOWN")
+
+            # ── triggers (digital) ────────────────────────────────────────
+            axes = [js.get_axis(i) for i in range(js.get_numaxes())]
+            # Triggers typically report -1.0 (released) to 1.0 (fully pressed).
+            l2_raw = axes[4] if len(axes) > 4 else -1.0
+            r2_raw = axes[5] if len(axes) > 5 else -1.0
+            if (l2_raw + 1.0) / 2.0 > TRIGGER_THRESHOLD:
+                cur_buttons.add("ZL")
+            if (r2_raw + 1.0) / 2.0 > TRIGGER_THRESHOLD:
+                cur_buttons.add("ZR")
+
+            # ── analog sticks ─────────────────────────────────────────────
+            lx = _dead(axes[0] if len(axes) > 0 else 0.0)
+            ly = _dead(axes[1] if len(axes) > 1 else 0.0)
+            rx = _dead(axes[2] if len(axes) > 2 else 0.0)
+            ry = _dead(axes[3] if len(axes) > 3 else 0.0)
+
+            sb_lx = _axis_to_sb(-lx if INVERT_STICK_X else lx)
+            sb_ly = _axis_to_sb(-ly if INVERT_STICK_Y else ly)
+            sb_rx = _axis_to_sb(-rx if INVERT_STICK_X else rx)
+            sb_ry = _axis_to_sb(-ry if INVERT_STICK_Y else ry)
+
+            cur_left_stick  = (sb_lx, sb_ly)
+            cur_right_stick = (sb_rx, sb_ry)
+
+            ok = True
+
+            # ── send button changes ───────────────────────────────────────
+            for btn in prev_buttons - cur_buttons:
+                ok = ok and _send(sock, f"release {btn}")
+                held.discard(btn)
+            for btn in cur_buttons - prev_buttons:
+                ok = ok and _send(sock, f"press {btn}")
+                held.add(btn)
+
+            # ── send stick changes ────────────────────────────────────────
+            if cur_left_stick != prev_left_stick:
+                ok = ok and _send(sock, f"setStick LEFT {cur_left_stick[0]} {cur_left_stick[1]}")
+            if cur_right_stick != prev_right_stick:
+                ok = ok and _send(sock, f"setStick RIGHT {cur_right_stick[0]} {cur_right_stick[1]}")
+
+            if not ok:
+                print("Connection lost. Reconnecting…", file=sys.stderr, flush=True)
+                try:
+                    sock.close()
+                except OSError:
+                    pass
+                sock = None
+                held.clear()
+                prev_buttons.clear()
+                prev_left_stick = (0, 0)
+                prev_right_stick = (0, 0)
+                while sock is None:
+                    time.sleep(2)
+                    sock = _connect(ip)
+                continue
+
+            prev_buttons     = cur_buttons
+            prev_left_stick  = cur_left_stick
+            prev_right_stick = cur_right_stick
+
+            time.sleep(POLL_DELAY)
+
+    except KeyboardInterrupt:
+        print("\nExiting…", flush=True)
+    finally:
+        if sock is not None:
+            try:
+                _cleanup(sock, held)
+            except OSError:
+                pass
+            sock.close()
+        js.quit()
+        pygame.quit()
 
 
 if __name__ == "__main__":

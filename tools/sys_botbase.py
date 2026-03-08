@@ -31,11 +31,6 @@ class SysBotbaseBridge:
     TOUCH_TARGET_HEIGHT = 720
     TOUCH_SOURCE_DEFAULT = (1920, 942)
     BUTTON_MAP = {
-        # DSU uses Xbox-style face labels; sys-botbase expects Switch layout.
-        "A": "B",
-        "B": "A",
-        "X": "Y",
-        "Y": "X",
         "R1": "R",
         "L1": "L",
         "R2": "ZR",
@@ -49,6 +44,10 @@ class SysBotbaseBridge:
         "D-Pad Left": "DLEFT",
         "D-Pad Right": "DRIGHT",
     }
+    # Face button mapping with A↔B X↔Y swap (PS4 positional → Switch layout).
+    _FACE_MAP_SWAP = {"A": "B", "B": "A", "X": "Y", "Y": "X"}
+    # Face button passthrough (label mapping, no positional correction).
+    _FACE_MAP_PASS = {"A": "A", "B": "B", "X": "X", "Y": "Y"}
 
     def __init__(self, client):
         self.client = client
@@ -69,6 +68,9 @@ class SysBotbaseBridge:
         self._pending_dirty: bool = False
         self._send_thread: threading.Thread | None = None
         self._smoothing_enabled = False
+        self._swap_abxy = True
+        self._invert_x = False
+        self._invert_y = True
         self._deadzone: int | None = None
         self._last_touch_active = False
         self._last_touch_pos: tuple[int, int] | None = None
@@ -83,7 +85,9 @@ class SysBotbaseBridge:
     def start(self, ip: str, slot: int, max_rate_hz: float | None = None,
               smoothing: bool = False, deadzone: int | None = None,
               touch_source_width: int | None = None,
-              touch_source_height: int | None = None) -> bool:
+              touch_source_height: int | None = None,
+              invert_x: bool = False, invert_y: bool = True,
+              swap_abxy: bool = True) -> bool:
         """Connect to sys-botbase at ``ip`` and forward updates from ``slot``.
 
         When ``max_rate_hz`` is provided, outgoing packets are throttled to the
@@ -102,6 +106,8 @@ class SysBotbaseBridge:
                           ip, self.DEFAULT_PORT, exc)
             return False
 
+        sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+        sock.sendall(b"configure mainLoopSleepTime 0\r\n")
         self.target_ip = ip
         self.slot = slot
         self.sock = sock
@@ -112,6 +118,9 @@ class SysBotbaseBridge:
         self._max_rate_hz = max_rate_hz if max_rate_hz and max_rate_hz > 0 else None
         self._poll_interval = (1.0 / self._max_rate_hz) if self._max_rate_hz else None
         self._smoothing_enabled = smoothing
+        self._swap_abxy = swap_abxy
+        self._invert_x = invert_x
+        self._invert_y = invert_y
         self._deadzone = deadzone if deadzone and deadzone > 0 else None
         self._last_touch_active = False
         self._last_touch_pos = None
@@ -194,6 +203,9 @@ class SysBotbaseBridge:
         self._last_sticks = None
         self._last_raw_sticks = None
         self._smoothing_enabled = False
+        self._swap_abxy = True
+        self._invert_x = False
+        self._invert_y = True
         self._deadzone = None
         self._last_touch_active = False
         self._last_touch_pos = None
@@ -258,10 +270,15 @@ class SysBotbaseBridge:
 
     def _map_buttons(self, state: dict) -> set[str]:
         """Translate DSU button names to sys-botbase labels."""
+        face_map = self._FACE_MAP_SWAP if self._swap_abxy else self._FACE_MAP_PASS
         mapped = set()
         for name, pressed in state.get("buttons", {}).items():
-            if pressed and name in self.BUTTON_MAP:
+            if not pressed:
+                continue
+            if name in self.BUTTON_MAP:
                 mapped.add(self.BUTTON_MAP[name])
+            elif name in face_map:
+                mapped.add(face_map[name])
         if state.get("home"):
             mapped.add("HOME")
         return mapped
@@ -289,8 +306,18 @@ class SysBotbaseBridge:
             deltas = [abs(a - b) for a, b in zip(raw_sticks, self._last_raw_sticks)]
             if max(deltas) < 3:
                 return
-        left = (_scale_axis(raw_sticks[0]), _invert_axis(_scale_axis(raw_sticks[1])))
-        right = (_scale_axis(raw_sticks[2]), _invert_axis(_scale_axis(raw_sticks[3])))
+        lx = _scale_axis(raw_sticks[0])
+        ly = _scale_axis(raw_sticks[1])
+        rx = _scale_axis(raw_sticks[2])
+        ry = _scale_axis(raw_sticks[3])
+        if self._invert_x:
+            lx = _invert_axis(lx)
+            rx = _invert_axis(rx)
+        if self._invert_y:
+            ly = _invert_axis(ly)
+            ry = _invert_axis(ry)
+        left = (lx, ly)
+        right = (rx, ry)
         sticks = (*left, *right)
         if self._last_sticks is None or sticks[:2] != self._last_sticks[:2]:
             self._send_command(f"setStick LEFT {left[0]} {left[1]}")
