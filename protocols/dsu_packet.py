@@ -156,7 +156,7 @@ def send_port_disconnect(addr, slot, protocol_version: int | None = None):
 
 
 def handle_version_request(addr, protocol_version: int):
-    payload = struct.pack('<HH', protocol_version, 0)
+    payload = struct.pack('<H', PROTOCOL_VERSION)
     packet = build_header(
         DSU_version_response,
         payload,
@@ -212,7 +212,7 @@ def handle_motor_request(addr, data, protocol_version: int | None = None):
     """Respond with the number of rumble motors for a controller slot."""
     if len(data) < 28:
         return
-    slot = data[20]
+    slot = data[21]
     if slot >= net_cfg.soft_slot_limit:
         print("Warning: slots above 255 cannot be reported to the client")
         return
@@ -251,7 +251,7 @@ def handle_motor_command(addr, data):
     """Update rumble motor intensity for a controller slot."""
     if len(data) < 30:
         return
-    slot = data[20]
+    slot = data[21]
     info = net_cfg.ensure_client(addr)
     info['last_seen'] = time.time()
     info['slots'].add(slot)
