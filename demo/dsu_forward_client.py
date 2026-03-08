@@ -150,7 +150,7 @@ def parse_button_response(data: bytes) -> Dict[str, Any] | None:
         "touch_button": bool(touch_button),
         "ls": (ls_x, 255 - ls_y_inv),
         "rs": (rs_x, 255 - rs_y_inv),
-        "dpad": (dpad_left, dpad_down, dpad_right, dpad_up),
+        "dpad": (dpad_up, dpad_right, dpad_down, dpad_left),
         "face": (face_sqr, face_cro, face_cir, face_tri),
         "analog_r1": analog_r1,
         "analog_l1": analog_l1,
