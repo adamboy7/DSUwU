@@ -85,40 +85,41 @@ def parse_button_response(data: bytes) -> Dict[str, Any] | None:
         return None
 
     payload = data[20:]
+    # slot(1), slot_state(1), device_model(1), connection_type(1), mac(6), battery(1), is_active(1)
     fmt_hdr = "<4B6s2B"
     hdr_size = struct.calcsize(fmt_hdr)
     if len(payload) < hdr_size + 4:
         return None
 
-    slot, connected, battery, connection_type, mac, packet_num, mac_delay = struct.unpack(
+    slot, _slot_state, _device_model, connection_type, mac, battery, is_active = struct.unpack(
         fmt_hdr, payload[:hdr_size]
     )
-    fmt_btns = "<5B2H"
+    offset = hdr_size
+
+    # 4-byte packet counter follows the header.
+    counter, = struct.unpack_from("<I", payload, offset)
+    offset += 4
+
+    # buttons1, buttons2, home, touch_button,
+    # ls_x, ls_y_inv, rs_x, rs_y_inv,
+    # dpad_left, dpad_down, dpad_right, dpad_up,
+    # face_sqr, face_cro, face_cir, face_tri,
+    # analog_r1, analog_l1, analog_r2, analog_l2
+    fmt_btns = "<BBBBBBBBBBBBBBBBBBBB"
     btn_size = struct.calcsize(fmt_btns)
-    if len(payload) < hdr_size + btn_size:
+    if len(payload) < offset + btn_size:
         return None
     (
-        buttons1,
-        buttons2,
-        home,
-        touch_button,
-        active_touches,
-        left_x,
-        left_y_inverted,
-    ) = struct.unpack(fmt_btns, payload[hdr_size:hdr_size + btn_size])
-    offset = hdr_size + btn_size
+        buttons1, buttons2, home, touch_button,
+        ls_x, ls_y_inv, rs_x, rs_y_inv,
+        dpad_left, dpad_down, dpad_right, dpad_up,
+        face_sqr, face_cro, face_cir, face_tri,
+        analog_r1, analog_l1, analog_r2, analog_l2,
+    ) = struct.unpack(fmt_btns, payload[offset:offset + btn_size])
+    offset += btn_size
 
-    fmt_dpad_face = "<4B4B4H"
-    dpad_face_size = struct.calcsize(fmt_dpad_face)
-    if len(payload) < offset + dpad_face_size + 6:
-        return None
-
-    dpad_up, dpad_right, dpad_down, dpad_left, tri, cir, cro, sqr, ls_x, ls_y, rs_x, rs_y = struct.unpack(
-        fmt_dpad_face, payload[offset:offset + dpad_face_size]
-    )
-    offset += dpad_face_size
-
-    touch_fmt = "<BIHH"
+    # Touch packets: active(B), id(B), x(H), y(H) — 6 bytes each.
+    touch_fmt = "<BBHH"
     touch_size = struct.calcsize(touch_fmt)
     if len(payload) < offset + 2 * touch_size + 8 + 24:
         return None
@@ -126,13 +127,6 @@ def parse_button_response(data: bytes) -> Dict[str, Any] | None:
     touch1 = decode_touch(struct.unpack(touch_fmt, payload[offset:offset + touch_size]))
     touch2 = decode_touch(struct.unpack(touch_fmt, payload[offset + touch_size:offset + 2 * touch_size]))
     offset += 2 * touch_size
-
-    analog_fmt = "<4B"
-    analog_size = struct.calcsize(analog_fmt)
-    analog_r1, analog_l1, analog_r2, analog_l2 = struct.unpack(
-        analog_fmt, payload[offset:offset + analog_size]
-    )
-    offset += analog_size
 
     motion_ts, = struct.unpack_from("<Q", payload, offset)
     offset += 8
@@ -144,9 +138,9 @@ def parse_button_response(data: bytes) -> Dict[str, Any] | None:
     return {
         "slot": slot,
         "mac": ":".join(f"{b:02X}" for b in mac),
-        "packet": packet_num,
+        "packet": counter,
         "protocol_version": protocol_version,
-        "connected": bool(connected),
+        "connected": bool(is_active),
         "connection_type": connection_type,
         "battery": battery,
         "buttons1": buttons1,
@@ -154,10 +148,10 @@ def parse_button_response(data: bytes) -> Dict[str, Any] | None:
         "buttons": decode_buttons(buttons1, buttons2),
         "home": bool(home),
         "touch_button": bool(touch_button),
-        "ls": (ls_x, 255 - left_y_inverted),
-        "rs": (rs_x, 255 - rs_y),
-        "dpad": (dpad_up, dpad_right, dpad_down, dpad_left),
-        "face": (tri, cir, cro, sqr),
+        "ls": (ls_x, 255 - ls_y_inv),
+        "rs": (rs_x, 255 - rs_y_inv),
+        "dpad": (dpad_left, dpad_down, dpad_right, dpad_up),
+        "face": (face_sqr, face_cro, face_cir, face_tri),
         "analog_r1": analog_r1,
         "analog_l1": analog_l1,
         "analog_r2": analog_r2,

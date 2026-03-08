@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import importlib
 import time
-from typing import Iterable, Optional
+from typing import Optional, Sequence
 
 from libraries.inputs import frame_delay, set_slot_mac_address
 from libraries.masks import button_mask_1, button_mask_2, touchpad_input
@@ -130,7 +130,7 @@ def _button_states(face: int, shoulders: int) -> dict[str, bool]:
     }
 
 
-def _touch(report: Iterable[int], start: int):
+def _touch(report: Sequence[int], start: int):
     touch_id = report[start]
     active = (touch_id & 0x80) == 0
     x = ((report[start + 2] & 0x0F) << 8) | report[start + 1]
