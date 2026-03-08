@@ -56,10 +56,10 @@ def decode_buttons(buttons1: int, buttons2: int) -> dict[str, bool]:
         "R3": bool(buttons1 & 0x04),
         "L3": bool(buttons1 & 0x02),
         "Share": bool(buttons1 & 0x01),
-        "Y": bool(buttons2 & 0x10),
-        "B": bool(buttons2 & 0x20),
-        "A": bool(buttons2 & 0x40),
-        "X": bool(buttons2 & 0x80),
+        "Triangle": bool(buttons2 & 0x10),
+        "Circle":   bool(buttons2 & 0x20),
+        "Cross":    bool(buttons2 & 0x40),
+        "Square":   bool(buttons2 & 0x80),
         "R1": bool(buttons2 & 0x08),
         "L1": bool(buttons2 & 0x04),
         "R2": bool(buttons2 & 0x02),
@@ -78,6 +78,11 @@ def parse_button_response(data: bytes) -> Dict[str, Any] | None:
     """Decode a DSU button response into a mapping of controller fields."""
 
     if len(data) < 20:
+        return None
+    if data[:4] != b"DSUS":
+        return None
+    recv_crc, = struct.unpack_from("<I", data, 8)
+    if crc_packet(data[:16], data[16:]) != recv_crc:
         return None
     protocol_version, = struct.unpack_from("<H", data, 4)
     msg_type, = struct.unpack_from("<I", data, 16)
@@ -168,6 +173,8 @@ def _copy_state(target_slot: int, controller_states, state: Dict[str, Any]) -> N
     """Copy decoded DSU state into the local controller slot."""
 
     controller = controller_states[target_slot]
+    dirty_event = controller._dirty_event
+    controller._dirty_event = None
     controller.connected = state["connected"]
     controller.packet_num = state["packet"]
     controller.buttons1 = state["buttons1"]
@@ -203,8 +210,9 @@ def _copy_state(target_slot: int, controller_states, state: Dict[str, Any]) -> N
     except ValueError:
         pass
 
-    if controller._dirty_event is not None:
-        controller._dirty_event.set()
+    controller._dirty_event = dirty_event
+    if dirty_event is not None:
+        dirty_event.set()
 
 
 def controller_loop(stop_event, controller_states, slot):

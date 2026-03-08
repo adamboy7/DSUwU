@@ -9,7 +9,9 @@ DSUwU server.
 from __future__ import annotations
 
 import importlib
+import struct
 import time
+import zlib
 from typing import Optional, Sequence
 
 from libraries.inputs import frame_delay, set_slot_mac_address
@@ -167,6 +169,18 @@ def _connection_from_report(report: list[int]) -> tuple[int, int]:
     return 0, 1  # Fallback to USB-style layout.
 
 
+_BT_CRC_SEED = b'\xa1'
+
+
+def _check_bt_crc(report: Sequence[int]) -> bool:
+    """Return True if the BT 0x11 report CRC32 is valid."""
+    if len(report) < 78:
+        return False
+    received = struct.unpack_from('<I', bytes(report), 74)[0]
+    computed = zlib.crc32(_BT_CRC_SEED + bytes(report[:74])) & 0xFFFFFFFF
+    return received == computed
+
+
 def controller_loop(stop_event, controller_states, slot):
     hid_module = _load_hid_module()
     if hid_module is None:
@@ -176,6 +190,8 @@ def controller_loop(stop_event, controller_states, slot):
     device_info: Optional[dict] = None
     last_hw_timestamp: Optional[int] = None
     motion_timestamp = int(time.time() * 1_000_000)
+    last_read_wall: float = time.monotonic()
+    bt_crc_errors = 0
 
     # DS4/DualSense typically report around 250 Hz (~4 ms); use a tight timeout
     # so missed packets are retried quickly without capping the loop to 60 Hz.
@@ -237,6 +253,16 @@ def controller_loop(stop_event, controller_states, slot):
             base, connection_type = _connection_from_report(report)
         except Exception:
             base, connection_type = 0, 1
+
+        if connection_type == 2:  # Bluetooth
+            if not _check_bt_crc(report):
+                bt_crc_errors += 1
+                if bt_crc_errors == 10:
+                    print("hid_controller: repeated BT CRC failures; check controller connection")
+                    bt_crc_errors = 0
+                continue
+            bt_crc_errors = 0
+
         min_length = base + 43  # Covers everything up to the second touch packet.
         if len(report) < min_length:
             time.sleep(frame_delay)
@@ -253,13 +279,18 @@ def controller_loop(stop_event, controller_states, slot):
         l2_analog = report[base + 8]
         r2_analog = report[base + 9]
 
+        now_wall = time.monotonic()
         raw_timestamp = (report[base + 11] << 8) | report[base + 10]
         if last_hw_timestamp is None:
             motion_timestamp = int(time.time() * 1_000_000)
         else:
             delta = (raw_timestamp - last_hw_timestamp) & 0xFFFF
-            motion_timestamp += int(delta * (16 / 3))
+            if delta != 0:
+                motion_timestamp += int(delta * (16 / 3))
+            else:
+                motion_timestamp += int((now_wall - last_read_wall) * 1_000_000)
         last_hw_timestamp = raw_timestamp
+        last_read_wall = now_wall
 
         gyro_x = int.from_bytes(bytes(report[base + 13 : base + 15]), "little", signed=True)
         gyro_y = int.from_bytes(bytes(report[base + 15 : base + 17]), "little", signed=True)
