@@ -8,6 +8,10 @@ Configuration variables (edit below if needed):
 - ``SERVER_PORT``: DSU server UDP port.
 - ``REMOTE_SLOT``: Slot number to request from the remote DSU server.
 - ``REQUEST_INTERVAL``: Seconds between request packets.
+- ``FORWARD_MOTION``: Forward accelerometer/gyroscope data into the local slot.
+  Set to False to zero out motion fields regardless of what the remote sends.
+- ``FORWARD_TOUCH``: Forward touchpad contact data into the local slot.
+  Set to False to clear touch fields regardless of what the remote sends.
 """
 from __future__ import annotations
 
@@ -31,6 +35,18 @@ SERVER_IP = "127.0.0.1"
 SERVER_PORT = net_cfg.UDP_port
 REMOTE_SLOT = 0
 REQUEST_INTERVAL = 0.25
+
+# ---------------------------------------------------------------------------
+# Motion / touch forwarding — toggle what gets written into the local slot
+# ---------------------------------------------------------------------------
+
+# Copy accelerometer and gyroscope data from the remote slot.
+# Set to False to zero out motion fields in the local controller state.
+FORWARD_MOTION: bool = True
+
+# Copy touchpad contact data (position and active state) from the remote slot.
+# Set to False to clear touch fields in the local controller state.
+FORWARD_TOUCH: bool = True
 
 
 def build_client_packet(msg_type: int, payload: bytes, protocol_version: int) -> bytes:
@@ -189,19 +205,29 @@ def _copy_state(target_slot: int, controller_states, state: Dict[str, Any]) -> N
     controller.analog_L1 = state["analog_l1"]
     controller.analog_R2 = state["analog_r2"]
     controller.analog_L2 = state["analog_l2"]
-    controller.touchpad_input1 = (
-        int(state["touch1"]["active"]),
-        state["touch1"]["id"],
-        *state["touch1"]["pos"],
-    )
-    controller.touchpad_input2 = (
-        int(state["touch2"]["active"]),
-        state["touch2"]["id"],
-        *state["touch2"]["pos"],
-    )
-    controller.motion_timestamp = state["motion_ts"]
-    controller.accelerometer = tuple(state["accel"])
-    controller.gyroscope = tuple(state["gyro"])
+    if FORWARD_TOUCH:
+        controller.touchpad_input1 = (
+            int(state["touch1"]["active"]),
+            state["touch1"]["id"],
+            *state["touch1"]["pos"],
+        )
+        controller.touchpad_input2 = (
+            int(state["touch2"]["active"]),
+            state["touch2"]["id"],
+            *state["touch2"]["pos"],
+        )
+    else:
+        controller.touchpad_input1 = (0, 0, 0, 0)
+        controller.touchpad_input2 = (0, 0, 0, 0)
+
+    if FORWARD_MOTION:
+        controller.motion_timestamp = state["motion_ts"]
+        controller.accelerometer = tuple(state["accel"])
+        controller.gyroscope = tuple(state["gyro"])
+    else:
+        controller.motion_timestamp = 0
+        controller.accelerometer = (0.0, 0.0, 0.0)
+        controller.gyroscope = (0.0, 0.0, 0.0)
     controller.connection_type = state["connection_type"]
     controller.battery = state["battery"]
 
