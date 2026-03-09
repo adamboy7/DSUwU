@@ -385,27 +385,30 @@ def main() -> None:
 
             buttons = _button_states(face_byte, shoulder_byte)
 
-            # --- Motion timestamp (DS4 hardware counter, ~5.33 µs per tick) ---
-            now_wall = time.monotonic()
-            raw_ts   = (report[base + 11] << 8) | report[base + 10]
-            if last_hw_ts is None:
-                motion_ts = int(time.time() * 1_000_000)
-            else:
-                delta = (raw_ts - last_hw_ts) & 0xFFFF
-                if delta != 0:
-                    motion_ts += int(delta * (16 / 3))
+            # --- Motion timestamp and IMU (raw signed int16) ------------------
+            if SEND_MOTION:
+                now_wall = time.monotonic()
+                raw_ts   = (report[base + 11] << 8) | report[base + 10]
+                if last_hw_ts is None:
+                    motion_ts = int(time.time() * 1_000_000)
                 else:
-                    motion_ts += int((now_wall - last_wall) * 1_000_000)
-            last_hw_ts = raw_ts
-            last_wall  = now_wall
+                    delta = (raw_ts - last_hw_ts) & 0xFFFF
+                    if delta != 0:
+                        motion_ts += int(delta * (16 / 3))
+                    else:
+                        motion_ts += int((now_wall - last_wall) * 1_000_000)
+                last_hw_ts = raw_ts
+                last_wall  = now_wall
 
-            # --- IMU (raw signed int16) ----------------------------------------
-            gyro_x  = int.from_bytes(bytes(report[base + 13: base + 15]), "little", signed=True)
-            gyro_y  = int.from_bytes(bytes(report[base + 15: base + 17]), "little", signed=True)
-            gyro_z  = int.from_bytes(bytes(report[base + 17: base + 19]), "little", signed=True)
-            accel_x = int.from_bytes(bytes(report[base + 19: base + 21]), "little", signed=True)
-            accel_y = int.from_bytes(bytes(report[base + 21: base + 23]), "little", signed=True)
-            accel_z = int.from_bytes(bytes(report[base + 23: base + 25]), "little", signed=True)
+                gyro_x  = int.from_bytes(bytes(report[base + 13: base + 15]), "little", signed=True)
+                gyro_y  = int.from_bytes(bytes(report[base + 15: base + 17]), "little", signed=True)
+                gyro_z  = int.from_bytes(bytes(report[base + 17: base + 19]), "little", signed=True)
+                accel_x = int.from_bytes(bytes(report[base + 19: base + 21]), "little", signed=True)
+                accel_y = int.from_bytes(bytes(report[base + 21: base + 23]), "little", signed=True)
+                accel_z = int.from_bytes(bytes(report[base + 23: base + 25]), "little", signed=True)
+            else:
+                gyro_x = gyro_y = gyro_z = 0
+                accel_x = accel_y = accel_z = 0
 
             # --- Touch --------------------------------------------------------
             if SEND_TOUCH:
