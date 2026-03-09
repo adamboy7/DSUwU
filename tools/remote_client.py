@@ -7,26 +7,30 @@ The client only requires outbound network access — no port forwarding needed.
 Usage:
     python tools/remote_client.py
 
-Server IP, port, and slot are read from ``tools/remote_config.py``.
+All settings are read from ``tools/remote_config.json``.
 
 Requirements:
     pip install pygame
 """
 
+import json
+import pathlib
 import socket
 import struct
 import time
 import zlib
 
-import remote_config
-
 # ---------------------------------------------------------------------------
-# Configuration — edit remote_config.py for server IP/port/slot
+# Configuration — loaded from remote_config.json
 # ---------------------------------------------------------------------------
 
-SERVER_IP   = remote_config.SERVER_IP
-SERVER_PORT = remote_config.SERVER_PORT
-SLOT        = remote_config.SLOT
+_config_path = pathlib.Path(__file__).with_name("remote_config.json")
+with _config_path.open() as _f:
+    _cfg = json.load(_f)
+
+SERVER_IP   = _cfg["server_ip"]
+SERVER_PORT = _cfg["server_port"]
+SLOT        = _cfg["slot"]
 
 # Which pygame joystick index to use. 0 = first connected gamepad.
 JOYSTICK_INDEX = 0

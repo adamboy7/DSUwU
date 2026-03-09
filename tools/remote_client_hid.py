@@ -8,8 +8,8 @@ running ``demo/remote_input_script.py``.
 Usage:
     python tools/remote_client_hid.py
 
-Server IP, port, and slot are read from ``tools/remote_config.py``.
-Toggle SEND_MOTION and SEND_TOUCH below to control what data is forwarded.
+All settings are read from ``tools/remote_config.json``, including
+send_motion and send_touch to control what data is forwarded.
 
 Requirements:
     pip install hidapi
@@ -19,31 +19,27 @@ from __future__ import annotations
 
 import importlib
 import importlib.util
+import json
+import pathlib
 import socket
 import struct
 import time
 import zlib
 from typing import Optional, Sequence
 
-import remote_config
-
 # ---------------------------------------------------------------------------
-# Configuration — toggle motion and touch forwarding here
+# Configuration — loaded from remote_config.json
 # ---------------------------------------------------------------------------
 
-# Forward accelerometer and gyroscope data to the server.
-SEND_MOTION: bool = True
+_config_path = pathlib.Path(__file__).with_name("remote_config.json")
+with _config_path.open() as _f:
+    _cfg = json.load(_f)
 
-# Forward touchpad contact data (position and active state) to the server.
-SEND_TOUCH: bool = True
-
-# ---------------------------------------------------------------------------
-# Shared config from remote_config.py
-# ---------------------------------------------------------------------------
-
-SERVER_IP   = remote_config.SERVER_IP
-SERVER_PORT = remote_config.SERVER_PORT
-SLOT        = remote_config.SLOT
+SERVER_IP   = _cfg["server_ip"]
+SERVER_PORT = _cfg["server_port"]
+SLOT        = _cfg["slot"]
+SEND_MOTION = bool(_cfg["send_motion"])
+SEND_TOUCH  = bool(_cfg["send_touch"])
 
 # ---------------------------------------------------------------------------
 # Protocol constants
