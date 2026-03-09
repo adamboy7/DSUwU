@@ -5,9 +5,9 @@ packets over UDP to a DSUwU server running ``demo/remote_input_script.py``.
 The client only requires outbound network access — no port forwarding needed.
 
 Usage:
-    python demo/remote_client.py
+    python tools/remote_client.py
 
-Edit the configuration constants below before running.
+Server IP, port, and slot are read from ``tools/remote_config.py``.
 
 Requirements:
     pip install pygame
@@ -18,18 +18,15 @@ import struct
 import time
 import zlib
 
+import remote_config
+
 # ---------------------------------------------------------------------------
-# Configuration — edit these before running
+# Configuration — edit remote_config.py for server IP/port/slot
 # ---------------------------------------------------------------------------
 
-# IP address of the server machine (the one running DSUwU + remote_input_script.py)
-SERVER_IP = "127.0.0.1"
-
-# UDP port to send packets to. Must match LISTEN_PORT in remote_input_script.py.
-SERVER_PORT = 26761
-
-# Controller slot to emulate on the server (1–4 for standard DSU).
-SLOT = 1
+SERVER_IP   = remote_config.SERVER_IP
+SERVER_PORT = remote_config.SERVER_PORT
+SLOT        = remote_config.SLOT
 
 # Which pygame joystick index to use. 0 = first connected gamepad.
 JOYSTICK_INDEX = 0
