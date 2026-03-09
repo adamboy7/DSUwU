@@ -1,0 +1,7 @@
+{
+    "server_ip": "127.0.0.1",
+    "server_port": 26761,
+    "slot": 1,
+    "send_motion": true,
+    "send_touch": true
+}
