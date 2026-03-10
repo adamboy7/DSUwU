@@ -155,6 +155,7 @@ class MotionControllerViewer:
 
     # Complementary filter weights
     ALPHA    = 0.95         # gyro weight (higher → smoother, slower drift correction)
+    DEG_TO_RAD = math.pi / 180.0
 
     def __init__(self, parent, client):
         self.client = client
@@ -220,11 +221,11 @@ class MotionControllerViewer:
         ax, ay, az = accel
         gx, gy, gz = gyro
 
-        # Accelerometer-derived absolute tilt
+        # Accelerometer-derived absolute tilt (Y is up axis; flat → ay≈1, ax≈az≈0)
         norm = math.sqrt(ax*ax + ay*ay + az*az)
         if norm > 0.01:
-            accel_pitch = math.atan2(ay, math.sqrt(ax*ax + az*az))
-            accel_roll  = math.atan2(-ax, az if abs(az) > 0.01 else 0.01)
+            accel_pitch = math.atan2(-az, ay)   # rotation around X: 0 when flat
+            accel_roll  = math.atan2(ax, ay)    # rotation around Z: 0 when flat
         else:
             accel_pitch = self._pitch
             accel_roll  = self._roll
@@ -238,9 +239,10 @@ class MotionControllerViewer:
             dt = self.UPDATE_MS / 1000.0
         self._last_ts = motion_ts
 
-        gyro_pitch = self._pitch + gx * dt
-        gyro_roll  = self._roll  + gy * dt
-        self._yaw  += gz * dt
+        # DS4/DualSense: gx=pitch rate, gy=yaw rate, gz=roll rate (all in deg/s)
+        gyro_pitch = self._pitch + gx * self.DEG_TO_RAD * dt
+        gyro_roll  = self._roll  + gz * self.DEG_TO_RAD * dt
+        self._yaw  += gy * self.DEG_TO_RAD * dt
 
         # Complementary filter: blend gyro integration with accel correction
         self._pitch = self.ALPHA * gyro_pitch + (1 - self.ALPHA) * accel_pitch
