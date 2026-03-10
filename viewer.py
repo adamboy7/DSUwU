@@ -12,6 +12,7 @@ from tools.debug_packet import PacketParserWindow, format_state, parse_port_info
 from tools.input_capture import InputCapture
 from tools.motion_capture import MotionCapture
 from tools.sys_botbase import SysBotbaseBridge
+from tools.motion_viewer import MotionControllerViewer
 
 from libraries.net_config import UDP_port
 import libraries.net_config as net_cfg
@@ -564,6 +565,10 @@ class ViewerUI:
         self.capture_menu_index = self.tools_menu.index("end")
         self.tools_menu.add_command(label="Start motion capture", command=self._start_motion_capture)
         self.motion_menu_index = self.tools_menu.index("end")
+        self.tools_menu.add_command(label="Motion Viewer", command=self._open_motion_viewer)
+
+    def _open_motion_viewer(self):
+        MotionControllerViewer(self.root, self.client)
 
     def _ensure_tab(self, slot: int) -> None:
         if slot in self.labels:
