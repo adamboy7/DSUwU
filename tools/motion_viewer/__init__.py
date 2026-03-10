@@ -101,42 +101,9 @@ _FACES = [
 # Math helpers (pure Python – no numpy)
 # ---------------------------------------------------------------------------
 
-def _matmul(A, B):
-    """3×3 matrix multiply."""
-    n = 3
-    return [
-        [sum(A[r][k] * B[k][c] for k in range(n)) for c in range(n)]
-        for r in range(n)
-    ]
-
-
 def _matvec(M, v):
     """3×3 matrix × 3-vector."""
     return [sum(M[r][c] * v[c] for c in range(3)) for r in range(3)]
-
-
-def _rotation_x(angle):
-    """Rotation matrix around X axis."""
-    c, s = math.cos(angle), math.sin(angle)
-    return [[1, 0,  0],
-            [0, c, -s],
-            [0, s,  c]]
-
-
-def _rotation_y(angle):
-    """Rotation matrix around Y axis."""
-    c, s = math.cos(angle), math.sin(angle)
-    return [[ c, 0, s],
-            [ 0, 1, 0],
-            [-s, 0, c]]
-
-
-def _rotation_z(angle):
-    """Rotation matrix around Z axis."""
-    c, s = math.cos(angle), math.sin(angle)
-    return [[c, -s, 0],
-            [s,  c, 0],
-            [0,  0, 1]]
 
 
 # ---------------------------------------------------------------------------
@@ -153,15 +120,15 @@ class MotionControllerViewer:
     Z_OFFSET = 3.5          # push model away from camera so z denominator > 0
     UPDATE_MS = 33          # ~30 fps
 
-    # Complementary filter weights
-    ALPHA    = 0.95         # gyro weight (higher → smoother, slower drift correction)
+    # Mahony filter gains
+    KP = 2.0                # proportional (accel correction speed)
+    KI = 0.005              # integral (gyro bias bleed-off)
     DEG_TO_RAD = math.pi / 180.0
 
     def __init__(self, parent, client):
         self.client = client
-        self._pitch = 0.0   # radians – tilt toward / away from player
-        self._roll  = 0.0   # radians – tilt left / right
-        self._yaw   = 0.0   # radians – twist (gyro-integrated only)
+        self._q  = [1.0, 0.0, 0.0, 0.0]   # unit quaternion (w, x, y, z)
+        self._ei = [0.0, 0.0, 0.0]         # integral error accumulator
         self._last_ts: int | None = None
         self._after_job = None
 
@@ -207,9 +174,8 @@ class MotionControllerViewer:
             self._slot_var.set(values[0])
 
     def _reset_orientation(self):
-        self._pitch = 0.0
-        self._roll  = 0.0
-        self._yaw   = 0.0
+        self._q  = [1.0, 0.0, 0.0, 0.0]
+        self._ei = [0.0, 0.0, 0.0]
         self._last_ts = None
 
     # ------------------------------------------------------------------
@@ -217,47 +183,71 @@ class MotionControllerViewer:
     # ------------------------------------------------------------------
 
     def _update_orientation(self, accel, gyro, motion_ts):
-        """Apply complementary filter to update pitch/roll/yaw."""
+        """Mahony complementary filter using quaternion integration."""
         ax, ay, az = accel
-        gx, gy, gz = gyro
+        # DS4/DualSense: gx=pitch rate, gy=yaw rate, gz=roll rate (deg/s → rad/s)
+        gx = gyro[0] * self.DEG_TO_RAD
+        gy = gyro[1] * self.DEG_TO_RAD
+        gz = gyro[2] * self.DEG_TO_RAD
 
-        # Accelerometer-derived absolute tilt (Y is up axis; flat → ay≈1, ax≈az≈0)
-        norm = math.sqrt(ax*ax + ay*ay + az*az)
-        if norm > 0.01:
-            accel_pitch = math.atan2(-az, ay)   # rotation around X: 0 when flat
-            accel_roll  = math.atan2(ax, ay)    # rotation around Z: 0 when flat
-        else:
-            accel_pitch = self._pitch
-            accel_roll  = self._roll
-
-        # Integrate gyroscope for dt
+        # dt
         if self._last_ts is not None and motion_ts != self._last_ts:
-            # motion_timestamp is in microseconds
             dt = (motion_ts - self._last_ts) / 1_000_000.0
-            dt = max(0.0, min(dt, 0.5))  # clamp to sane range
+            dt = max(0.0, min(dt, 0.5))
         else:
             dt = self.UPDATE_MS / 1000.0
         self._last_ts = motion_ts
 
-        # DS4/DualSense: gx=pitch rate, gy=yaw rate, gz=roll rate (all in deg/s)
-        gyro_pitch = self._pitch + gx * self.DEG_TO_RAD * dt
-        gyro_roll  = self._roll  + gz * self.DEG_TO_RAD * dt
-        self._yaw  += gy * self.DEG_TO_RAD * dt
+        # Accel correction (only when magnitude is plausible gravity, 0.5–2 g)
+        norm = math.sqrt(ax*ax + ay*ay + az*az)
+        if 0.5 < norm < 2.0:
+            ax /= norm; ay /= norm; az /= norm
 
-        # Complementary filter: blend gyro integration with accel correction
-        self._pitch = self.ALPHA * gyro_pitch + (1 - self.ALPHA) * accel_pitch
-        self._roll  = self.ALPHA * gyro_roll  + (1 - self.ALPHA) * accel_roll
+            # Estimated gravity direction in body frame from current quaternion
+            # Second row of R (= R^T * [0,1,0]) for Y-up convention
+            w, x, y, z = self._q
+            vx = 2.0 * (x*y + w*z)
+            vy = w*w - x*x + y*y - z*z
+            vz = 2.0 * (y*z - w*x)
+
+            # Cross product: measured accel × estimated gravity → error vector
+            ex = ay*vz - az*vy
+            ey = az*vx - ax*vz
+            ez = ax*vy - ay*vx
+
+            # Integral feedback (slowly cancels gyro bias)
+            self._ei[0] += ex * dt * self.KI
+            self._ei[1] += ey * dt * self.KI
+            self._ei[2] += ez * dt * self.KI
+
+            gx += self.KP * ex + self._ei[0]
+            gy += self.KP * ey + self._ei[1]
+            gz += self.KP * ez + self._ei[2]
+
+        # Quaternion integration: q_dot = 0.5 * q ⊗ [0, gx, gy, gz]
+        w, x, y, z = self._q
+        self._q[0] += 0.5 * dt * (-x*gx - y*gy - z*gz)
+        self._q[1] += 0.5 * dt * ( w*gx + y*gz - z*gy)
+        self._q[2] += 0.5 * dt * ( w*gy - x*gz + z*gx)
+        self._q[3] += 0.5 * dt * ( w*gz + x*gy - y*gx)
+
+        # Renormalize
+        n = math.sqrt(sum(v*v for v in self._q))
+        if n > 1e-6:
+            self._q = [v / n for v in self._q]
 
     # ------------------------------------------------------------------
     # Rendering
     # ------------------------------------------------------------------
 
     def _build_rotation_matrix(self):
-        """Combined rotation matrix for current pitch / roll / yaw."""
-        Rx = _rotation_x(self._pitch)
-        Rz = _rotation_z(self._roll)
-        Ry = _rotation_y(self._yaw)
-        return _matmul(Ry, _matmul(Rx, Rz))
+        """Quaternion → 3×3 rotation matrix."""
+        w, x, y, z = self._q
+        return [
+            [1 - 2*(y*y + z*z),     2*(x*y - w*z),     2*(x*z + w*y)],
+            [    2*(x*y + w*z), 1 - 2*(x*x + z*z),     2*(y*z - w*x)],
+            [    2*(x*z - w*y),     2*(y*z + w*x), 1 - 2*(x*x + y*y)],
+        ]
 
     def _project(self, v, R):
         """Rotate vertex, then apply perspective projection → (sx, sy, depth)."""
